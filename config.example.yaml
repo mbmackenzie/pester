@@ -1,0 +1,34 @@
+# Example Pester deployment config. Point PESTER_CONFIG at a copy of this file.
+# Generate token hashes with: pester hash-token
+
+clients:
+  example-producer:
+    token_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    permissions: [submit_jobs, read_events, preview]
+    recipients: [kate]
+
+recipients:
+  kate:
+    timezone: America/New_York
+    quiet_hours: {start: "22:00", end: "09:00"}
+    channels:
+      fake: {address: kate}
+      # telegram: {user_id: 123456789, chat_id: 123456789}
+
+personalities:
+  default:
+    type: neutral
+  weather-goblin:
+    type: llm
+    prompt: |
+      You are a mildly antagonistic but supportive companion. Be concise.
+      Never alter or contradict the supplied facts.
+
+scheduler:
+  quiet_hours: {start: "21:00", end: "08:30"}
+  min_interval_minutes: 120
+  max_messages_per_day: 4
+  max_outstanding: 1
+  jitter_minutes: 30
+  default_answer_within_seconds: 86400
+  debounce_seconds: 20

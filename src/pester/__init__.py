@@ -1,2 +1,3 @@
-def main() -> None:
-    print("Hello from pester!")
+from pester.cli import main
+
+__all__ = ["main"]
