@@ -11,11 +11,14 @@ from pester.configstore import ConfigStore
 from pester.core.clock import Clock
 from pester.core.messages import InboundMessage
 from pester.delivery.manager import ChannelManager
+from pester.delivery.pairing import PairingDesk
 from pester.delivery.router import ResponseRouter
 from pester.delivery.worker import DeliveryWorker
 from pester.evaluation.worker import EvaluationWorker
 from pester.live import LiveConfig, Snapshot, SnapshotBuilder
+from pester.pairing import PairingStore
 from pester.scheduler.worker import SchedulerWorker
+from pester.service import AdminService
 from pester.storage.repository import Repository
 
 log = logging.getLogger(__name__)
@@ -40,6 +43,8 @@ class Runtime:
         *,
         store: ConfigStore | None = None,
         builder: SnapshotBuilder | None = None,
+        pairings: PairingStore | None = None,
+        service: AdminService | None = None,
     ) -> None:
         self._repo = repo
         self.live = live
@@ -48,12 +53,15 @@ class Runtime:
         self._failed_version = 0
         self.manager = manager
         self.channels = manager.channels  # updated in place as channels start and stop
-        self.router = ResponseRouter(repo, live, self.channels, clock)
+        self.pairing = PairingDesk(pairings, service, manager, live) if pairings and service else None
+        self.router = ResponseRouter(
+            repo, live, self.channels, clock, self.pairing.handle_unknown if self.pairing else None
+        )
         self.scheduler = SchedulerWorker(repo, live, self.channels, clock)
         self.delivery = DeliveryWorker(repo, self.channels, clock, live)
         self.evaluation = EvaluationWorker(repo, live, clock)
         self._steps: dict[str, Callable[[], Awaitable[int]]] = {
-            "config": self.reload_config,
+            "config": self._config_step,
             "scheduler": self.scheduler.run_once,
             "delivery": self.delivery.run_once,
             "evaluation": self.evaluation.run_once,
@@ -64,6 +72,12 @@ class Runtime:
         self._clock = clock
         self._last_ok: dict[str, datetime] = {}
         self._last_error: dict[str, str] = {}
+
+    async def _config_step(self) -> int:
+        done = await self.reload_config()
+        if self.pairing is not None:
+            done += await self.pairing.send_welcomes()
+        return done
 
     async def reload_config(self) -> int:
         """Put the latest stored config into effect if it's newer. Returns 1 if it changed, else 0.

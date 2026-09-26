@@ -41,6 +41,8 @@ class CommandHandler:
                 return "Resumed."
             case "status":
                 return await self._status(recipient_id)
+            case "start":
+                return f"You're already set up. {HELP}"
             case _:
                 return HELP
 

@@ -22,7 +22,9 @@ from pester.delivery.base import DeliveryChannel
 from pester.delivery.manager import ChannelManager
 from pester.evaluation.base import EvaluatorRegistry
 from pester.live import LiveConfig, SnapshotBuilder
+from pester.pairing import PairingStore
 from pester.runtime import Runtime
+from pester.service import AdminService
 from pester.state import AppState
 from pester.storage.db import Database
 from pester.storage.repository import Repository
@@ -60,13 +62,24 @@ def create_app(
         stored = await store.latest()
         assert stored is not None
         await live.publish(builder.build(stored.version, stored.config, await store.secrets()))
+        pairings = PairingStore(db, clock)
+        service = AdminService(
+            store,
+            pairings,
+            validate=lambda config, secrets: _ignore(builder.build(0, config, secrets)),
+            on_saved=lambda: runtime.reload_config(),
+        )
         manager = ChannelManager(
             ChannelServices(clock, db), channels or (), dev_mock=settings.dev_mode and channels is None
         )
-        runtime = Runtime(repo, live, clock, manager, store=store, builder=builder)
+        runtime = Runtime(
+            repo, live, clock, manager, store=store, builder=builder, pairings=pairings, service=service
+        )
         app.state.repo = repo
         app.state.runtime = runtime
         app.state.config_store = store
+        app.state.service = service
+        app.state.pairings = pairings
         app.state.admin = AdminAuth(db, clock)
         app.state.admin_queries = AdminQueries(db)
         await app.state.admin.announce()
@@ -90,6 +103,10 @@ def create_app(
     admin.install(app)
     _register_error_handlers(app)
     return app
+
+
+def _ignore(_: object) -> None:
+    return None
 
 
 async def seed_config(store: ConfigStore, settings: Settings, config: PesterConfig | None) -> None:

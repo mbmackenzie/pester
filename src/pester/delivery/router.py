@@ -1,7 +1,7 @@
 """Maps inbound messages to jobs (spec §9.2)."""
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import timedelta
 
 from pester.core.clock import Clock
@@ -28,11 +28,13 @@ class ResponseRouter:
         live: LiveConfig,
         channels: Mapping[str, DeliveryChannel],
         clock: Clock,
+        on_unknown: Callable[[InboundMessage], Awaitable[None]] | None = None,
     ) -> None:
         self._repo = repo
         self._live = live
         self._channels = channels
         self._commands = CommandHandler(repo, live, clock)
+        self._on_unknown = on_unknown
 
     def recipient_for(self, channel: str, address: str) -> str | None:
         """The recipient with this address on this channel. Recipients are the sender allowlist."""
@@ -52,9 +54,12 @@ class ResponseRouter:
             kind = f"command /{message.command.name}" if message.command else "message"
             log.info("%s from %s", kind, recipient_id, extra=context)
         if recipient_id is None:
-            log.warning(
-                "dropping message from unknown sender %s on %s", message.sender_address, message.channel
-            )
+            if self._on_unknown is not None:
+                await self._on_unknown(message)  # pairing
+            else:
+                log.warning(
+                    "dropping message from unknown sender %s on %s", message.sender_address, message.channel
+                )
             return None
 
         if message.command is not None:
