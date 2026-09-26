@@ -11,7 +11,8 @@ Jobs in. Humans bothered. Responses evaluated. Events out.
 Pester is domain-agnostic. It doesn't know about quizzes, habits, or reminders; that meaning belongs to producers.
 
 - **Spec:** [docs/spec.md](docs/spec.md)
-- **Roadmap:** milestone issues M0–M6 on GitHub
+- **Deploying:** [docs/deploy.md](docs/deploy.md) (Docker Compose / Dockge, LAN-only)
+- **Roadmap:** milestone issues M0–M8 on GitHub
 
 Status: pre-alpha. The full loop runs locally against the fake channel, with LLM grading, pluggable personalities, and realistic pacing (M4).
 

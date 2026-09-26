@@ -1,6 +1,7 @@
 """All persistence. Every state change and its event are written in one transaction."""
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -25,8 +26,11 @@ from pester.core.models import (
 from pester.core.states import EventType, JobStatus, check_transition, event_for
 from pester.storage.db import Database, from_db, to_db
 
+log = logging.getLogger(__name__)
+
 _JOB_COLUMNS = (
-    "pk, client_id, job_id, batch_id, status, content_hash, spec, created_at, updated_at, snoozed_until"
+    "pk, client_id, job_id, batch_id, recipient_id, status, content_hash, spec, created_at, updated_at, "
+    "snoozed_until"
 )
 _J_JOB_COLUMNS = ", ".join(f"j.{c.strip()}" for c in _JOB_COLUMNS.split(","))
 
@@ -62,6 +66,7 @@ class PendingDelivery:
     address: str
     message: OutboundMessage
     job: JobRecord
+    attempts: int  # including the one about to be made
 
 
 @dataclass(frozen=True)
@@ -216,6 +221,11 @@ class Repository:
             for row in rows
         ]
 
+    async def ping(self) -> None:
+        """Raises unless the database accepts a write transaction."""
+        async with self._db.transaction() as conn:
+            await conn.execute("SELECT 1")
+
     # ---- Scheduling ---------------------------------------------------------------------------------
 
     async def scheduling_snapshot(self, prompts_since: datetime) -> SchedulingSnapshot:
@@ -300,18 +310,20 @@ class Repository:
     # ---- Delivery -----------------------------------------------------------------------------------
 
     async def claim_next_delivery(self) -> PendingDelivery | None:
-        """Mark the oldest pending delivery SENDING and return it.
+        """Mark the oldest due pending delivery SENDING and return it.
 
-        Deliveries whose job has moved on (e.g. was cancelled) are marked CANCELLED and skipped.
+        Deliveries whose job has moved on (e.g. was cancelled) are marked CANCELLED and skipped. Deliveries
+        waiting to be retried are not due until their ``next_attempt_at``.
         """
         async with self._db.transaction() as conn:
             while True:
                 row = await _fetch_one(
                     conn,
-                    f"SELECT d.pk AS d_pk, d.kind, d.channel, d.address, d.message, {_J_JOB_COLUMNS} "
-                    "FROM deliveries d JOIN jobs j ON j.pk = d.job_pk "
-                    "WHERE d.status = ? ORDER BY d.pk LIMIT 1",
-                    (DeliveryStatus.PENDING,),
+                    f"SELECT d.pk AS d_pk, d.kind, d.channel, d.address, d.message, d.attempts, "
+                    f"{_J_JOB_COLUMNS} FROM deliveries d JOIN jobs j ON j.pk = d.job_pk "
+                    "WHERE d.status = ? AND (d.next_attempt_at IS NULL OR d.next_attempt_at <= ?) "
+                    "ORDER BY d.pk LIMIT 1",
+                    (DeliveryStatus.PENDING, to_db(self._clock.now())),
                 )
                 if row is None:
                     return None
@@ -334,6 +346,7 @@ class Repository:
                     address=row["address"],
                     message=OutboundMessage.model_validate_json(row["message"]),
                     job=_to_record(row),
+                    attempts=int(row["attempts"]) + 1,
                 )
 
     async def delivery_sent(self, delivery: PendingDelivery, external_id: str, sent_at: datetime) -> None:
@@ -353,7 +366,21 @@ class Repository:
                 payload = {"feedback": {"text": delivery.message.text, "sent_at": _iso(sent_at)}}
                 await self._apply(conn, row, JobStatus.COMPLETED, payload)
 
-    async def delivery_failed(self, delivery: PendingDelivery, error: str) -> None:
+    async def delivery_retry(self, delivery: PendingDelivery, error: str, next_attempt_at: datetime) -> None:
+        async with self._db.transaction() as conn:
+            await conn.execute(
+                "UPDATE deliveries SET status = ?, error = ?, next_attempt_at = ?, updated_at = ? "
+                "WHERE pk = ?",
+                (
+                    DeliveryStatus.PENDING,
+                    error,
+                    to_db(next_attempt_at),
+                    to_db(self._clock.now()),
+                    delivery.pk,
+                ),
+            )
+
+    async def delivery_failed(self, delivery: PendingDelivery, error: str, reason: str | None = None) -> None:
         async with self._db.transaction() as conn:
             await conn.execute(
                 "UPDATE deliveries SET status = ?, error = ?, updated_at = ? WHERE pk = ?",
@@ -362,8 +389,45 @@ class Repository:
             row = await _fetch_job_by_pk(conn, delivery.job.pk)
             assert row is not None
             if row["status"] == _EXPECTED_JOB_STATUS[delivery.kind]:
-                reason = f"{delivery.kind.lower()}_delivery_failed"
-                await self._apply(conn, row, JobStatus.FAILED, {"reason": reason, "error": error})
+                payload = {
+                    "reason": reason or f"{delivery.kind.lower()}_delivery_failed",
+                    "error": error,
+                    "attempts": delivery.attempts,
+                }
+                await self._apply(conn, row, JobStatus.FAILED, payload)
+
+    async def recover_interrupted_sends(self) -> int:
+        """Resolve deliveries left SENDING by a crash (spec §9.1). They are never resent.
+
+        A person may or may not have received the message, and a duplicate is worse than a lost message. An
+        interrupted prompt fails its job (``ambiguous_send``). An interrupted feedback message completes its
+        job, flagged ``delivery_uncertain``: the evaluation is intact either way.
+        """
+        async with self._db.transaction() as conn:
+            rows = list(
+                await conn.execute_fetchall(
+                    f"SELECT d.pk AS d_pk, d.kind, d.message, {_J_JOB_COLUMNS} "
+                    "FROM deliveries d JOIN jobs j ON j.pk = d.job_pk WHERE d.status = ?",
+                    (DeliveryStatus.SENDING,),
+                )
+            )
+            now = to_db(self._clock.now())
+            for row in rows:
+                await conn.execute(
+                    "UPDATE deliveries SET status = ?, error = ?, updated_at = ? WHERE pk = ?",
+                    (DeliveryStatus.FAILED, "interrupted mid-send; not retried", now, row["d_pk"]),
+                )
+                kind = DeliveryKind(row["kind"])
+                if row["status"] != _EXPECTED_JOB_STATUS[kind]:
+                    continue
+                if kind is DeliveryKind.PROMPT:
+                    payload: dict[str, Any] = {"reason": "ambiguous_send", "error": "interrupted mid-send"}
+                    await self._apply(conn, row, JobStatus.FAILED, payload)
+                else:
+                    text = OutboundMessage.model_validate_json(row["message"]).text
+                    payload = {"feedback": {"text": text, "sent_at": None, "delivery_uncertain": True}}
+                    await self._apply(conn, row, JobStatus.COMPLETED, payload)
+            return len(rows)
 
     # ---- Inbound ------------------------------------------------------------------------------------
 
@@ -402,11 +466,7 @@ class Repository:
                     "received_at": _iso(message.received_at),
                 }
                 await self._append_event(
-                    conn,
-                    job_row["client_id"],
-                    job_row["pk"],
-                    EventType.INTERACTION_LATE_RESPONSE,
-                    {"response": late},
+                    conn, job_row, EventType.INTERACTION_LATE_RESPONSE, {"response": late}
                 )
                 return IngestResult(outcome, _to_record(job_row))
 
@@ -682,7 +742,7 @@ class Repository:
             (target, to_db(self._clock.now()), row["pk"]),
         )
         if (event_type := event_for(current, target)) is not None:
-            await self._append_event(conn, row["client_id"], row["pk"], event_type, payload or {})
+            await self._append_event(conn, row, event_type, payload or {})
         updated = await _fetch_job_by_pk(conn, row["pk"])
         assert updated is not None
         return _to_record(updated)
@@ -723,9 +783,9 @@ class Repository:
             ),
         )
         assert cursor.lastrowid is not None
-        await self._append_event(conn, client_id, cursor.lastrowid, EventType.INTERACTION_QUEUED, {})
         row = await _fetch_job(conn, client_id, job_id)
         assert row is not None
+        await self._append_event(conn, row, EventType.INTERACTION_QUEUED, {})
         return row
 
     async def _insert_delivery(
@@ -763,15 +823,34 @@ class Repository:
     async def _append_event(
         self,
         conn: aiosqlite.Connection,
-        client_id: str,
-        job_pk: int,
+        job_row: aiosqlite.Row,
         event_type: EventType,
         payload: dict[str, Any],
     ) -> None:
         await conn.execute(
             "INSERT INTO events (event_id, client_id, job_pk, type, payload, occurred_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (new_id(), client_id, job_pk, event_type, json.dumps(payload), to_db(self._clock.now())),
+            (
+                new_id(),
+                job_row["client_id"],
+                job_row["pk"],
+                event_type,
+                json.dumps(payload),
+                to_db(self._clock.now()),
+            ),
+        )
+        # One log line per event, written where the event is, so the two can't disagree.
+        log.info(
+            "%s %s",
+            event_type,
+            job_row["job_id"],
+            extra={
+                "event": event_type,
+                "interaction_id": job_row["job_id"],
+                "batch_id": job_row["batch_id"],
+                "client_id": job_row["client_id"],
+                "recipient_id": job_row["recipient_id"],
+            },
         )
 
 

@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     port: int = 8000
     dev_mode: bool = False  # enables the fake channel and the unauthenticated /dev routes
     run_workers: bool = True  # tests disable this and drive workers with Runtime.run_until_idle()
+    log_level: str = "INFO"
+    log_format: Literal["text", "json"] = "text"
     openai_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("OPENAI_API_KEY", "PESTER_OPENAI_API_KEY")
     )
@@ -120,6 +122,14 @@ class SchedulerConfig(_Strict):
     debounce_seconds: int = Field(default=20, ge=0)
 
 
+class DeliveryConfig(_Strict):
+    """Retries for sends that failed without reaching the person."""
+
+    max_attempts: int = Field(default=5, ge=1)
+    backoff_seconds: float = Field(default=5, gt=0)  # doubles each attempt
+    max_backoff_seconds: float = Field(default=600, gt=0)
+
+
 class PesterConfig(_Strict):
     clients: dict[str, ClientConfig] = Field(default_factory=dict)
     recipients: dict[str, RecipientConfig] = Field(default_factory=dict)
@@ -127,6 +137,7 @@ class PesterConfig(_Strict):
     default_personality: str = "default"
     scheduler: SchedulerConfig = SchedulerConfig()
     llm: LLMConfig = LLMConfig()
+    delivery: DeliveryConfig = DeliveryConfig()
 
     @model_validator(mode="before")
     @classmethod
