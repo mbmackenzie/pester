@@ -1,16 +1,21 @@
 """Application factory."""
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
-from pester.api import batches, events, health, jobs
+from pester.api import batches, dev, events, health, jobs
 from pester.config import PesterConfig, Settings, load_config
 from pester.core.clock import Clock, SystemClock
 from pester.core.errors import IdempotencyConflictError, IllegalTransitionError, JobNotFoundError
+from pester.delivery.base import DeliveryChannel
+from pester.delivery.memory import InMemoryChannel
+from pester.evaluation.base import EvaluatorRegistry
+from pester.evaluation.echo import EchoEvaluator
+from pester.runtime import Runtime
 from pester.storage.db import Database
 from pester.storage.repository import Repository
 
@@ -26,6 +31,8 @@ def create_app(
     settings: Settings | None = None,
     config: PesterConfig | None = None,
     clock: Clock | None = None,
+    channels: Sequence[DeliveryChannel] | None = None,
+    evaluators: EvaluatorRegistry | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     state = AppState(
@@ -33,21 +40,34 @@ def create_app(
         config=config if config is not None else load_config(settings.config),
         clock=clock or SystemClock(),
     )
+    if channels is None:
+        channels = [InMemoryChannel(state.clock, name="fake")] if settings.dev_mode else []
+    # The LLM evaluator arrives in M3; until then every job is echoed.
+    evaluators = evaluators or EvaluatorRegistry(default=EchoEvaluator())
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         db = await Database.open(settings.database_path)
-        app.state.repo = Repository(db, state.clock)
-        # Background workers (scheduler, delivery, evaluation) start and stop here.
+        repo = Repository(db, state.clock)
+        runtime = Runtime(repo, state.config, state.clock, channels, evaluators)
+        app.state.repo = repo
+        app.state.runtime = runtime
+        await runtime.start_channels()
+        if settings.run_workers:
+            runtime.start_workers()
         try:
             yield
         finally:
+            await runtime.stop_workers()
+            await runtime.stop_channels()
             await db.close()
 
     app = FastAPI(title="Pester", version="0.1.0", lifespan=lifespan)
     app.state.pester = state
     for module in (health, jobs, batches, events):
         app.include_router(module.router)
+    if settings.dev_mode:
+        app.include_router(dev.router)
     _register_error_handlers(app)
     return app
 

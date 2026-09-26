@@ -49,3 +49,4 @@ typeCheckingMode = "strict"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = ["pester_config(overrides): deep-merge overrides into the e2e test config"]

@@ -71,7 +71,7 @@ def clock() -> FakeClock:
 
 @pytest.fixture
 def app(tmp_path: Path, config: PesterConfig, clock: FakeClock) -> FastAPI:
-    settings = Settings(database_path=tmp_path / "pester.sqlite", dev_mode=True)
+    settings = Settings(database_path=tmp_path / "pester.sqlite", dev_mode=True, run_workers=False)
     return create_app(settings=settings, config=config, clock=clock)
 
 

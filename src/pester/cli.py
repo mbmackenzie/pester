@@ -25,6 +25,16 @@ def _hash_token(args: argparse.Namespace) -> None:
         print(hash_token(args.token))
 
 
+def _chat(args: argparse.Namespace) -> None:
+    import asyncio
+    import contextlib
+
+    from pester.devchat import run_chat
+
+    with contextlib.suppress(KeyboardInterrupt):
+        asyncio.run(run_chat(args.url, args.address))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pester", description="Jobs in. Humans bothered. Events out.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -38,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
     tok = sub.add_parser("hash-token", help="hash a producer token for config (generates one if omitted)")
     tok.add_argument("token", nargs="?")
     tok.set_defaults(func=_hash_token)
+
+    chat = sub.add_parser("chat", help="chat as a recipient through the fake channel (dev mode)")
+    chat.add_argument("address", help="the recipient's fake channel address")
+    chat.add_argument("--url", default="http://127.0.0.1:8000", help="Pester server URL")
+    chat.set_defaults(func=_chat)
 
     return parser
 

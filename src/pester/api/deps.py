@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from pester.config import ClientConfig, Permission, PesterConfig
 from pester.core.tokens import hash_token
+from pester.runtime import Runtime
 from pester.storage.repository import Repository
 
 _bearer = HTTPBearer(auto_error=False)
@@ -27,6 +28,10 @@ def get_config(request: Request) -> PesterConfig:
 
 def get_repo(request: Request) -> Repository:
     return request.app.state.repo
+
+
+def get_runtime(request: Request) -> Runtime:
+    return request.app.state.runtime
 
 
 def require(permission: Permission) -> Callable[..., Awaitable[Principal]]:
@@ -53,5 +58,6 @@ def require(permission: Permission) -> Callable[..., Awaitable[Principal]]:
 
 ConfigDep = Annotated[PesterConfig, Depends(get_config)]
 RepoDep = Annotated[Repository, Depends(get_repo)]
+RuntimeDep = Annotated[Runtime, Depends(get_runtime)]
 SubmitPrincipal = Annotated[Principal, Depends(require(Permission.SUBMIT_JOBS))]
 ReadPrincipal = Annotated[Principal, Depends(require(Permission.READ_EVENTS))]

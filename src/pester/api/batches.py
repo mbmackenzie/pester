@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
-from pester.api.deps import ConfigDep, RepoDep, SubmitPrincipal
+from pester.api.deps import ConfigDep, RepoDep, RuntimeDep, SubmitPrincipal
 from pester.api.jobs import JobAccepted, check_submission
 from pester.core.models import BatchSubmission
 
@@ -15,11 +15,17 @@ class BatchAccepted(BaseModel):
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def submit_batch(
-    batch: BatchSubmission, principal: SubmitPrincipal, config: ConfigDep, repo: RepoDep, response: Response
+    batch: BatchSubmission,
+    principal: SubmitPrincipal,
+    config: ConfigDep,
+    repo: RepoDep,
+    runtime: RuntimeDep,
+    response: Response,
 ) -> BatchAccepted:
     for index, job in enumerate(batch.jobs):
         check_submission(config, principal, job, where=f"jobs[{index}]: ")
     records, created = await repo.submit_batch(principal.client_id, batch)
+    runtime.nudge()
     if not created:
         response.status_code = status.HTTP_200_OK
     return BatchAccepted(batch_id=batch.batch_id, jobs=[JobAccepted.of(r) for r in records])
