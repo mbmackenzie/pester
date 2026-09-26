@@ -213,15 +213,6 @@ async def test_nothing_pending_notice(loop: Loop) -> None:
     assert loop.last_seen().text == "Nothing pending right now."
 
 
-async def test_commands_get_not_supported_notice(loop: Loop) -> None:
-    job_id = await loop.submit()
-    await loop.settle()
-    await loop.chat.inject("kate", "/skip")
-    await loop.settle()
-    assert loop.last_seen().text == "Commands aren't supported yet."
-    assert await loop.status(job_id) == "AWAITING"
-
-
 async def test_evaluation_failure_fails_job_but_keeps_response(loop: Loop) -> None:
     loop.evaluator.enqueue(RuntimeError("model exploded"))
     job_id = await loop.submit()

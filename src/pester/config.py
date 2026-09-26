@@ -114,6 +114,8 @@ class SchedulerConfig(_Strict):
     max_messages_per_day: int = Field(default=4, ge=1)
     max_outstanding: int = Field(default=1, ge=1)
     jitter_minutes: int = Field(default=30, ge=0)
+    jitter_seed: str = "pester"  # jitter is a deterministic function of this seed, so it survives restarts
+    max_snooze_hours: int = Field(default=168, gt=0)
     default_answer_within_seconds: int = Field(default=86_400, gt=0)
     debounce_seconds: int = Field(default=20, ge=0)
 

@@ -51,5 +51,7 @@ scheduler:
   max_messages_per_day: 4
   max_outstanding: 1
   jitter_minutes: 30
+  jitter_seed: pester        # jitter is deterministic per seed, so send times survive restarts
   default_answer_within_seconds: 86400
-  debounce_seconds: 20
+  debounce_seconds: 20       # join a multi-message answer before evaluating it
+  max_snooze_hours: 168

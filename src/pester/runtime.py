@@ -35,10 +35,10 @@ class Runtime:
         self.channels: Mapping[str, DeliveryChannel] = {c.name: c for c in channels}
         self.evaluators = evaluators
         self.personalities = personalities
-        self.router = ResponseRouter(repo, config, self.channels)
+        self.router = ResponseRouter(repo, config, self.channels, clock)
         self.scheduler = SchedulerWorker(repo, config, self.channels, clock, personalities)
         self.delivery = DeliveryWorker(repo, self.channels)
-        self.evaluation = EvaluationWorker(repo, evaluators, personalities)
+        self.evaluation = EvaluationWorker(repo, evaluators, personalities, clock)
         self._steps: dict[str, Callable[[], Awaitable[int]]] = {
             "scheduler": self.scheduler.run_once,
             "delivery": self.delivery.run_once,
