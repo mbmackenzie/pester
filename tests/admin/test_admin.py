@@ -268,7 +268,8 @@ async def test_messenger_needs_csrf(client: httpx.AsyncClient, signed_in: str) -
 
 async def test_unknown_address_is_flagged(client: httpx.AsyncClient, signed_in: str) -> None:
     page = (await client.get("/admin/chat", params={"address": "stranger"})).text
-    assert "Pester ignores its messages" in page
+    assert "No recipient uses the address" in page
+    assert "/start" in page
 
 
 async def test_messenger_without_the_mock_channel(
@@ -276,7 +277,7 @@ async def test_messenger_without_the_mock_channel(
 ) -> None:
     app.state.runtime.channels = {}  # a deployment without the mock channel
     page = (await client.get("/admin/chat")).text
-    assert "mock channel isn't running" in page
+    assert "No mock channel is running" in page
     assert (await client.get("/admin/chat/kate/log")).status_code == 404
 
 

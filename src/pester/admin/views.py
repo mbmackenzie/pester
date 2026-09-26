@@ -21,7 +21,7 @@ from pester.core.errors import IllegalTransitionError, JobNotFoundError
 from pester.core.models import DeliverySpec, EvaluationSpec, InteractionJob
 from pester.core.states import JobStatus
 from pester.delivery.base import ChannelError
-from pester.delivery.memory import ChatMessage, InMemoryChannel
+from pester.delivery.memory import ChatMessage, InMemoryChannel, mock_channels
 from pester.evaluation.llm import LLMEvaluator
 from pester.runtime import Runtime
 from pester.state import AppState
@@ -30,7 +30,6 @@ from pester.storage.repository import Repository
 router = APIRouter(prefix="/admin", include_in_schema=False)
 
 COOKIE = "pester_admin"
-MOCK_CHANNEL = "fake"  # the dev-mode in-memory channel; a configurable mock adapter arrives with M6
 
 
 # ---- Templates ------------------------------------------------------------------------------------------
@@ -154,9 +153,10 @@ def render(
     )
 
 
-def _mock_channel(request: Request) -> InMemoryChannel | None:
-    channel = _runtime(request).channels.get(MOCK_CHANNEL)
-    return channel if isinstance(channel, InMemoryChannel) else None
+def _mock_channel(request: Request, name: str | None) -> InMemoryChannel | None:
+    """The mock channel called ``name``, else the first one."""
+    mocks = mock_channels(_runtime(request).channels)
+    return mocks.get(name) if name else next(iter(mocks.values()), None)
 
 
 # ---- First run, login, logout ---------------------------------------------------------------------------
@@ -306,13 +306,15 @@ async def cancel_job(request: Request, admin: CheckedAdminDep, client_id: str, j
 # ---- Mock messenger -------------------------------------------------------------------------------------
 
 
-def _mock_addresses(state: AppState) -> list[tuple[str, str]]:
-    """(address, recipient id) for every recipient reachable on the mock channel."""
-    found: list[tuple[str, str]] = []
+def _mock_addresses(state: AppState, channel: InMemoryChannel) -> list[tuple[str, str | None]]:
+    """(address, recipient id or None) for recipients on this channel, then other active conversations."""
+    found: list[tuple[str, str | None]] = []
     for recipient_id, recipient in sorted(state.config.recipients.items()):
-        address = recipient.channels.get(MOCK_CHANNEL, {}).get("address")
+        address = recipient.channels.get(channel.name, {}).get("address")
         if isinstance(address, str) and address:
             found.append((address, recipient_id))
+    known = {address for address, _ in found}
+    found += [(address, None) for address in channel.addresses() if address not in known]
     return found
 
 
@@ -324,22 +326,32 @@ def _conversation(messages: list[ChatMessage]) -> dict[str, Any]:
     }
 
 
-def _chat_log(request: Request, admin: Admin, address: str, messages: list[ChatMessage]) -> Response:
-    return render(request, "partials/chat_log.html", admin, address=address, **_conversation(messages))
+def _chat_log(request: Request, admin: Admin, channel: InMemoryChannel, address: str) -> Response:
+    return render(
+        request,
+        "partials/chat_log.html",
+        admin,
+        channel=channel,
+        address=address,
+        **_conversation(channel.conversation(address)),
+    )
 
 
 @router.get("/chat")
-async def chat(request: Request, admin: AdminDep, address: str | None = None) -> Response:
+async def chat(
+    request: Request, admin: AdminDep, address: str | None = None, channel: str | None = None
+) -> Response:
     state = _state(request)
-    channel = _mock_channel(request)
-    known = _mock_addresses(state)
+    mock = _mock_channel(request, channel)
+    known = _mock_addresses(state, mock) if mock else []
     address = address or (known[0][0] if known else None)
-    messages = channel.conversation(address) if channel and address else []
+    messages = mock.conversation(address) if mock and address else []
     return render(
         request,
         "chat.html",
         admin,
-        channel=channel,
+        channel=mock,
+        mocks=list(mock_channels(_runtime(request).channels)),
         address=address,
         known=known,
         recipient=dict(known).get(address or ""),
@@ -347,14 +359,21 @@ async def chat(request: Request, admin: AdminDep, address: str | None = None) ->
     )
 
 
+def _require_mock(request: Request, name: str | None) -> InMemoryChannel:
+    mock = _mock_channel(request, name)
+    if mock is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no mock channel is enabled")
+    return mock
+
+
 @router.get("/chat/{address}/log")
-async def chat_log(request: Request, admin: AdminDep, address: str, after: int = 0) -> Response:
-    channel = _mock_channel(request)
-    if channel is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "the mock channel is not enabled")
-    if not channel.conversation(address, after):
+async def chat_log(
+    request: Request, admin: AdminDep, address: str, after: int = 0, channel: str | None = None
+) -> Response:
+    mock = _require_mock(request, channel)
+    if not mock.conversation(address, after):
         return Response(status_code=status.HTTP_204_NO_CONTENT)  # htmx leaves the log alone
-    return _chat_log(request, admin, address, channel.conversation(address))
+    return _chat_log(request, admin, mock, address)
 
 
 @router.post("/chat/{address}")
@@ -365,14 +384,13 @@ async def chat_send(
     text: Annotated[str | None, Form()] = None,
     selected_option: Annotated[str | None, Form()] = None,
     reply_to: Annotated[str | None, Form()] = None,
+    channel: str | None = None,
 ) -> Response:
-    channel = _mock_channel(request)
-    if channel is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "the mock channel is not enabled")
+    mock = _require_mock(request, channel)
     text = (text or "").strip() or None
     if text is not None or selected_option:
         try:
-            await channel.inject(
+            await mock.inject(
                 address,
                 text,
                 reply_to=int(reply_to) if reply_to and reply_to.isdigit() else None,
@@ -380,7 +398,7 @@ async def chat_send(
             )
         except ChannelError as exc:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-    return _chat_log(request, admin, address, channel.conversation(address))
+    return _chat_log(request, admin, mock, address)
 
 
 # ---- Configuration (read-only until M6) -----------------------------------------------------------------
@@ -417,15 +435,14 @@ async def channels(request: Request, admin: AdminDep) -> Response:
     state, runtime = _state(request), _runtime(request)
     rows = [
         (
-            name,
-            name in runtime.started_channels,
+            status_,
             [
-                (recipient_id, recipient.channels[name])
+                (recipient_id, recipient.channels[status_.name])
                 for recipient_id, recipient in sorted(state.config.recipients.items())
-                if name in recipient.channels
+                if status_.name in recipient.channels
             ],
         )
-        for name in sorted(runtime.channels)
+        for status_ in runtime.manager.status()
     ]
     return render(request, "channels.html", admin, channels=rows, dev_mode=state.settings.dev_mode)
 

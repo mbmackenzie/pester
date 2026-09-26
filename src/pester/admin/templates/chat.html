@@ -4,14 +4,21 @@
 <h1>Messenger</h1>
 {% if not channel %}
 <section class="card">
-  <p>The mock channel isn't running. Until channels can be configured here (M6), start Pester with
-  <code>PESTER_DEV_MODE=true</code> to enable it.</p>
+  <p>No mock channel is running. Add one on the <a href="/admin/channels">Channels</a> page (type
+  <code>mock</code>), or with <code>pester channel add mock --type mock</code>.</p>
 </section>
 {% else %}
 <form method="get" class="filters">
+  {% if mocks | length > 1 %}
+  <label>Channel
+    <select name="channel" onchange="this.form.address.value=''; this.form.submit()">
+      {% for m in mocks %}<option {{ 'selected' if m == channel.name }}>{{ m }}</option>{% endfor %}
+    </select>
+  </label>
+  {% else %}<input type="hidden" name="channel" value="{{ channel.name }}">{% endif %}
   <label>Chat as
     <select name="address" onchange="this.form.submit()">
-      {% for a, r in known %}<option value="{{ a }}" {{ 'selected' if a == address }}>{{ r }}{% if a != r %} ({{ a }}){% endif %}</option>{% endfor %}
+      {% for a, r in known %}<option value="{{ a }}" {{ 'selected' if a == address }}>{% if r %}{{ r }}{% if a != r %} ({{ a }}){% endif %}{% else %}{{ a }} (not a recipient){% endif %}</option>{% endfor %}
       {% if address and address not in known | map(attribute=0) %}<option selected>{{ address }}</option>{% endif %}
     </select>
   </label>
@@ -21,11 +28,12 @@
     <button form="new-address">Open</button>
   </details>
 </form>
-<form id="new-address" method="get"></form>
+<form id="new-address" method="get"><input type="hidden" name="channel" value="{{ channel.name }}"></form>
 {% if address %}
 {% if not recipient %}
-<p class="note">No recipient uses the address <code>{{ address }}</code>, so Pester ignores its messages.
-After M6, messages from unknown addresses will show up as pairing requests to approve.</p>
+<p class="note">No recipient uses the address <code>{{ address }}</code> yet. Send <code>/start</code> (or
+<code>/start &lt;invite code&gt;</code>) to ask to be paired; the request appears under
+<a href="/admin/recipients">Recipients</a>.</p>
 {% endif %}
 <section class="phone">
   {% include "partials/chat_log.html" %}
@@ -34,7 +42,7 @@ After M6, messages from unknown addresses will show up as pairing requests to ap
       <button type="button" class="chip" data-command="{{ c }}">{{ c }}</button>
     {% endfor %}
   </div>
-  <form class="composer" hx-post="/admin/chat/{{ address }}" hx-target="#chat-log" hx-swap="outerHTML"
+  <form class="composer" hx-post="/admin/chat/{{ address }}?channel={{ channel.name }}" hx-target="#chat-log" hx-swap="outerHTML"
         hx-on::after-request="if (event.detail.successful) { this.reset(); clearReply(); }">
     <input type="hidden" name="reply_to" id="reply-to">
     <div class="replying" id="replying" hidden>Replying to <span></span> <button type="button" class="link" onclick="clearReply()">×</button></div>

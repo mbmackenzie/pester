@@ -6,16 +6,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, model_validator
 
 from pester.api.deps import RuntimeDep
-from pester.delivery.memory import ChatMessage, InMemoryChannel
+from pester.delivery.memory import ChatMessage, InMemoryChannel, mock_channels
 
 router = APIRouter(prefix="/dev", tags=["dev"])
 
 
-def get_fake_channel(runtime: RuntimeDep) -> InMemoryChannel:
-    channel = runtime.channels.get("fake")
-    if not isinstance(channel, InMemoryChannel):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "fake channel is not enabled")
-    return channel
+def get_fake_channel(runtime: RuntimeDep, channel: str | None = None) -> InMemoryChannel:
+    """The mock channel named by ``?channel=``, else the first one."""
+    mocks = mock_channels(runtime.channels)
+    found = mocks.get(channel) if channel else next(iter(mocks.values()), None)
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no mock channel is enabled")
+    return found
 
 
 FakeChannelDep = Annotated[InMemoryChannel, Depends(get_fake_channel)]

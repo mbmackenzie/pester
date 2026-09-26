@@ -6,21 +6,22 @@
 <section class="card flush">
 {% if channels %}
 <table>
-  <thead><tr><th>Channel</th><th>Status</th><th>Recipients</th></tr></thead>
-  {% for name, started, members in channels %}
+  <thead><tr><th>Channel</th><th>Type</th><th>Status</th><th>Recipients</th></tr></thead>
+  {% for st, members in channels %}
   <tr>
-    <td><strong>{{ "mock" if name == "fake" else name }}</strong></td>
-    <td><span class="dot {{ 'ok' if started else 'bad' }}"></span> {{ "running" if started else "failed to start" }}</td>
+    <td><strong>{{ st.name }}</strong></td>
+    <td><code>{{ st.type }}</code></td>
+    <td><span class="dot {{ 'ok' if st.running else 'bad' }}"></span> {{ "running" if st.running else "not running" }}
+      {% if st.error %}<div class="error-text small">{{ st.error }}</div>{% endif %}</td>
     <td>{% for r, cfg in members %}<span class="chip">{{ r }}{% if cfg.address %}: {{ cfg.address }}{% endif %}</span>{% else %}<span class="muted">none</span>{% endfor %}</td>
   </tr>
   {% endfor %}
 </table>
 {% else %}
-<p class="pad">No channels are running, so nothing can be delivered.
-{% if not dev_mode %}Set <code>PESTER_DEV_MODE=true</code> to enable the mock channel.{% endif %}</p>
+<p class="pad">No channels are running, so nothing can be delivered. Add one with
+<code>pester channel add mock --type mock</code>{% if not dev_mode %}, or set <code>PESTER_DEV_MODE=true</code>{% endif %}.</p>
 {% endif %}
 </section>
-<p class="note">The mock channel is an in-memory messenger for trying Pester out; use it from the
-<a href="/admin/chat">Messenger</a> page. Its conversations reset when Pester restarts. Adding and configuring
-channels here, including Telegram, arrives with M6 and M8.</p>
+<p class="note">A <code>mock</code> channel is a messenger built into Pester for trying it out; use it from the
+<a href="/admin/chat">Messenger</a> page.</p>
 {% endblock %}

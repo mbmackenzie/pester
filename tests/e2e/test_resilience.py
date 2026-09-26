@@ -12,6 +12,7 @@ from pester.core.clock import FakeClock
 from pester.core.messages import OutboundMessage, SentReceipt
 from pester.delivery.base import ChannelError, PermanentChannelError
 from pester.delivery.memory import InMemoryChannel
+from pester.delivery.mock import MockChannel
 from pester.evaluation.base import EvaluatorRegistry
 from pester.evaluation.scripted import ScriptedEvaluator
 from pester.main import create_app
@@ -246,26 +247,40 @@ async def test_retry_backoff_survives_restart(tmp_path: Path, config: PesterConf
         assert len(channel.sent("kate")) == 1
 
 
-async def test_mock_channel_numbering_survives_restart(
+async def test_mock_channel_conversations_survive_restart(
     tmp_path: Path, config: PesterConfig, clock: FakeClock
 ) -> None:
-    """The mock channel forgets its conversations on restart, but must not reuse message ids."""
-    first = InMemoryChannel(clock)
-    app, client = await boot(tmp_path, config, clock, first)
+    """The mock channel keeps its transcript, so ids are never reused and replies route to the right job."""
+
+    def boot_dev() -> tuple[FastAPI, httpx.AsyncClient]:
+        app = create_app(
+            settings=make_settings(tmp_path),  # dev mode: the implicit mock channel "fake"
+            config=config,
+            clock=clock,
+            evaluators=EvaluatorRegistry({"llm": ScriptedEvaluator()}),
+        )
+        return app, httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+
+    app, client = boot_dev()
     async with app.router.lifespan_context(app), client:
+        mock = runtime_of(app).channels["fake"]
+        assert isinstance(mock, MockChannel)
         await client.post("/api/v1/jobs", json=job_payload(id="old"), headers=auth(TOKEN_A))
         await runtime_of(app).run_until_idle()
-        await first.inject("kate", "old answer", reply_to=1)
+        await mock.inject("kate", "old answer", reply_to=1)
         await runtime_of(app).run_until_idle()
+        before = [m.text for m in mock.conversation("kate")]
 
-    second = InMemoryChannel(clock)  # a fresh process: empty conversations
-    app, client = await boot(tmp_path, config, clock, second)
+    app, client = boot_dev()
     async with app.router.lifespan_context(app), client:
+        mock = runtime_of(app).channels["fake"]
+        assert isinstance(mock, MockChannel)
+        assert [m.text for m in mock.conversation("kate")] == before  # restored
         await client.post("/api/v1/jobs", json=job_payload(id="new"), headers=auth(TOKEN_A))
         await runtime_of(app).run_until_idle()
-        prompt = second.sent("kate")[0]
-        assert prompt.id > 3  # after the old prompt, answer, and feedback
-        await second.inject("kate", "new answer", reply_to=prompt.id)
+        prompt = mock.sent("kate")[-1]
+        assert prompt.id == 4  # after the old prompt, answer, and feedback
+        await mock.inject("kate", "new answer", reply_to=prompt.id)
         await runtime_of(app).run_until_idle()
         status = (await client.get("/api/v1/jobs/new", headers=auth(TOKEN_A))).json()["status"]
     assert status == "COMPLETED"

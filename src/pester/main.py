@@ -17,8 +17,9 @@ from pester.config import PesterConfig, Settings, load_config
 from pester.configstore import ConfigStore
 from pester.core.clock import Clock, SystemClock
 from pester.core.errors import IdempotencyConflictError, IllegalTransitionError, JobNotFoundError
+from pester.delivery.adapters import ChannelServices
 from pester.delivery.base import DeliveryChannel
-from pester.delivery.memory import InMemoryChannel
+from pester.delivery.manager import ChannelManager
 from pester.evaluation.base import EvaluatorRegistry
 from pester.live import LiveConfig, SnapshotBuilder
 from pester.runtime import Runtime
@@ -49,8 +50,6 @@ def create_app(
     builder = SnapshotBuilder(settings, base_dir, evaluators=evaluators, llm_client=llm_client)
     live = LiveConfig(builder.build(0, config, {}) if config is not None else None)
     state = AppState(settings=settings, clock=clock, live=live)
-    if channels is None:
-        channels = [InMemoryChannel(clock, name="fake")] if settings.dev_mode else []
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
@@ -61,7 +60,10 @@ def create_app(
         stored = await store.latest()
         assert stored is not None
         await live.publish(builder.build(stored.version, stored.config, await store.secrets()))
-        runtime = Runtime(repo, live, clock, channels, store=store, builder=builder)
+        manager = ChannelManager(
+            ChannelServices(clock, db), channels or (), dev_mock=settings.dev_mode and channels is None
+        )
+        runtime = Runtime(repo, live, clock, manager, store=store, builder=builder)
         app.state.repo = repo
         app.state.runtime = runtime
         app.state.config_store = store
@@ -69,9 +71,6 @@ def create_app(
         app.state.admin_queries = AdminQueries(db)
         await app.state.admin.announce()
         await runtime.recover()
-        for channel in channels:
-            if isinstance(channel, InMemoryChannel):
-                channel.continue_after(await repo.last_external_ids(channel.name))
         await runtime.start_channels()
         if settings.run_workers:
             runtime.start_workers()

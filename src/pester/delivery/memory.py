@@ -1,4 +1,4 @@
-"""In-memory channel: used directly by tests, and as the ``fake`` channel for local development."""
+"""In-memory channel: used directly by tests, and the base of the ``mock`` adapter (``delivery.mock``)."""
 
 from collections import defaultdict
 from collections.abc import Mapping
@@ -24,6 +24,11 @@ class ChatMessage(BaseModel):
     at: UtcDatetime
 
 
+def mock_channels(channels: Mapping[str, object]) -> dict[str, "InMemoryChannel"]:
+    """The in-memory (mock) channels among ``channels``, by name."""
+    return {name: c for name, c in sorted(channels.items()) if isinstance(c, InMemoryChannel)}
+
+
 class InMemoryChannel:
     """Holds one conversation per address. Message ids are sequential per conversation, like Telegram."""
 
@@ -45,6 +50,9 @@ class InMemoryChannel:
             raise ValueError(f"{self._name} channel config requires a non-empty 'address'")
         return address
 
+    def recipient_config_for(self, address: str) -> dict[str, Any]:
+        return {"address": address}
+
     async def start(self, on_inbound: InboundHandler) -> None:
         self._handler = on_inbound
 
@@ -61,6 +69,7 @@ class InMemoryChannel:
             options=message.options,
             reply_to=int(message.reply_to_external_id) if message.reply_to_external_id else None,
         )
+        await self._persist(address, sent)
         return SentReceipt(external_id=str(sent.id), sent_at=sent.at)
 
     # ---- Test and dev helpers -----------------------------------------------------------------------
@@ -81,6 +90,7 @@ class InMemoryChannel:
         chat = self._append(
             address, direction="in", text=text, selected_option=selected_option, reply_to=reply_to
         )
+        await self._persist(address, chat)
         inbound = self.inbound_for(address, chat)
         await self._handler(inbound)
         return inbound
@@ -103,15 +113,6 @@ class InMemoryChannel:
             received_at=chat.at,
         )
 
-    def continue_after(self, last_ids: Mapping[str, int]) -> None:
-        """Number new messages after these per-address ids.
-
-        Conversations live in memory, but Pester stores external ids, so after a restart numbering must not
-        start again at 1: a reply to a reused id would be routed to an old job.
-        """
-        for address, last_id in last_ids.items():
-            self._last_id[address] = max(self._last_id.get(address, 0), last_id)
-
     def fail_next_send(self, error: Exception | None = None) -> None:
         self._send_failures.append(error or ChannelError("simulated send failure"))
 
@@ -120,6 +121,14 @@ class InMemoryChannel:
 
     def sent(self, address: str) -> list[ChatMessage]:
         return [m for m in self._chats[address] if m.direction == "out"]
+
+    def addresses(self) -> list[str]:
+        """Every address with a conversation, most recently active first."""
+        active = [(chat[-1].at, address) for address, chat in self._chats.items() if chat]
+        return [address for _, address in sorted(active, reverse=True)]
+
+    async def _persist(self, address: str, message: ChatMessage) -> None:
+        """Called after each message is added. The mock adapter stores it; tests keep everything in memory."""
 
     def _append(
         self,

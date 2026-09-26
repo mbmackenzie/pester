@@ -3,18 +3,18 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 
 from pester.configstore import ConfigStore
 from pester.core.clock import Clock
 from pester.core.messages import InboundMessage
-from pester.delivery.base import DeliveryChannel
+from pester.delivery.manager import ChannelManager
 from pester.delivery.router import ResponseRouter
 from pester.delivery.worker import DeliveryWorker
 from pester.evaluation.worker import EvaluationWorker
-from pester.live import LiveConfig, SnapshotBuilder
+from pester.live import LiveConfig, Snapshot, SnapshotBuilder
 from pester.scheduler.worker import SchedulerWorker
 from pester.storage.repository import Repository
 
@@ -36,7 +36,7 @@ class Runtime:
         repo: Repository,
         live: LiveConfig,
         clock: Clock,
-        channels: Sequence[DeliveryChannel],
+        manager: ChannelManager,
         *,
         store: ConfigStore | None = None,
         builder: SnapshotBuilder | None = None,
@@ -46,7 +46,8 @@ class Runtime:
         self._store = store
         self._builder = builder
         self._failed_version = 0
-        self.channels: Mapping[str, DeliveryChannel] = {c.name: c for c in channels}
+        self.manager = manager
+        self.channels = manager.channels  # updated in place as channels start and stop
         self.router = ResponseRouter(repo, live, self.channels, clock)
         self.scheduler = SchedulerWorker(repo, live, self.channels, clock)
         self.delivery = DeliveryWorker(repo, self.channels, clock, live)
@@ -60,7 +61,6 @@ class Runtime:
         self._wake = {name: asyncio.Event() for name in self._steps}
         self._tasks: list[asyncio.Task[None]] = []
         self._stopping = False
-        self._started: set[str] = set()
         self._clock = clock
         self._last_ok: dict[str, datetime] = {}
         self._last_error: dict[str, str] = {}
@@ -99,19 +99,20 @@ class Runtime:
             log.warning("resolved %d delivery(ies) interrupted mid-send; they were not resent", recovered)
 
     async def start_channels(self) -> None:
-        for name, channel in self.channels.items():
-            try:
-                await channel.start(self._on_inbound)
-            except Exception:
-                log.exception("channel %s failed to start", name, extra={"channel": name})
-            else:
-                self._started.add(name)
+        """Start every channel, and keep configured channels in step with config from now on."""
+        await self.manager.start_injected(self._on_inbound)
+        await self.manager.sync(self.live.current, self._on_inbound)
+        self.live.add_listener(self._sync_channels)
 
     async def stop_channels(self) -> None:
-        for name in list(self._started):
-            with contextlib.suppress(Exception):
-                await self.channels[name].stop()
-            self._started.discard(name)
+        await self.manager.stop_all()
+
+    async def restart_channel(self, name: str) -> None:
+        await self.manager.restart(name, self.live.current, self._on_inbound)
+        self.nudge()
+
+    async def _sync_channels(self, snapshot: Snapshot) -> None:
+        await self.manager.sync(snapshot, self._on_inbound)
 
     def start_workers(self) -> None:
         for name, step in self._steps.items():
@@ -150,7 +151,7 @@ class Runtime:
 
     @property
     def started_channels(self) -> frozenset[str]:
-        return frozenset(self._started)
+        return self.manager.started
 
     def nudge(self) -> None:
         """Wake every worker loop; called whenever something happened that may create work."""
