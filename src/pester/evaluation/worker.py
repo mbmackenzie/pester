@@ -1,5 +1,6 @@
 import logging
 
+from pester.core.clock import Clock
 from pester.core.messages import OutboundMessage
 from pester.evaluation.base import EvaluationFailedError, EvaluatorRegistry
 from pester.evaluation.pipeline import assess
@@ -11,17 +12,23 @@ log = logging.getLogger(__name__)
 
 class EvaluationWorker:
     def __init__(
-        self, repo: Repository, evaluators: EvaluatorRegistry, personalities: PersonalityRegistry
+        self,
+        repo: Repository,
+        evaluators: EvaluatorRegistry,
+        personalities: PersonalityRegistry,
+        clock: Clock,
     ) -> None:
         self._repo = repo
+        self._clock = clock
         self._evaluators = evaluators
         self._personalities = personalities
 
     async def run_once(self) -> int:
-        """Evaluate the oldest answered job. Returns the number of jobs processed (0 or 1)."""
+        """Close elapsed debounce windows, then evaluate the oldest answered job. Returns work done."""
+        closed = await self._repo.close_due_responses(self._clock.now())
         answered = await self._repo.next_answered()
         if answered is None:
-            return 0
+            return closed
         job = answered.job.spec
         try:
             assessment = await assess(job, answered.response, self._evaluators, self._personalities)
@@ -35,7 +42,7 @@ class EvaluationWorker:
                 request=exc.request,
                 raw=exc.raw,
             )
-            return 1
+            return closed + 1
         feedback = OutboundMessage(
             text=assessment.feedback.text, reply_to_external_id=answered.response.external_id
         )
@@ -47,4 +54,4 @@ class EvaluationWorker:
             personality_fallback=assessment.feedback.fallback,
             feedback=feedback,
         )
-        return 1
+        return closed + 1

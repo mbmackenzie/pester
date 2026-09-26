@@ -78,6 +78,14 @@ def config() -> PesterConfig:
                 "sam": {"timezone": "Europe/London"},
                 "alex": {},
             },
+            # No pacing by default, so tests are about one thing at a time; scheduling tests opt in.
+            "scheduler": {
+                "quiet_hours": None,
+                "min_interval_minutes": 0,
+                "max_messages_per_day": 1000,
+                "jitter_minutes": 0,
+                "debounce_seconds": 0,
+            },
             "personalities": {
                 "default": {"type": "neutral"},
                 "weather-goblin": {"type": "llm", "prompt": "Be a goblin.", "description": "Grumpy"},

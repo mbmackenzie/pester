@@ -2,10 +2,13 @@
 
 import logging
 from collections.abc import Mapping
+from datetime import timedelta
 
 from pester.config import PesterConfig
+from pester.core.clock import Clock
 from pester.core.messages import InboundMessage, OutboundMessage
 from pester.delivery.base import DeliveryChannel
+from pester.delivery.commands import CommandHandler
 from pester.storage.repository import IngestOutcome, Repository
 
 log = logging.getLogger(__name__)
@@ -15,7 +18,6 @@ NOTICES: dict[IngestOutcome, str] = {
     IngestOutcome.AMBIGUOUS: (
         "You have more than one open question. Reply directly to the one you're answering."
     ),
-    IngestOutcome.COMMAND: "Commands aren't supported yet.",
 }
 
 
@@ -25,9 +27,12 @@ class ResponseRouter:
         repo: Repository,
         config: PesterConfig,
         channels: Mapping[str, DeliveryChannel],
+        clock: Clock,
     ) -> None:
         self._repo = repo
         self._channels = channels
+        self._commands = CommandHandler(repo, config, clock)
+        self._debounce = timedelta(seconds=config.scheduler.debounce_seconds)
         # channel name -> address -> recipient id; this is also the sender allowlist.
         self._recipients: dict[str, dict[str, str]] = {name: {} for name in channels}
         for recipient_id, recipient in config.recipients.items():
@@ -51,10 +56,10 @@ class ResponseRouter:
         if message.command is not None:
             if not await self._repo.record_inbound(message, IngestOutcome.COMMAND):
                 return IngestOutcome.DUPLICATE
-            outcome = IngestOutcome.COMMAND
-        else:
-            outcome = (await self._repo.ingest_response(recipient_id, message)).outcome
+            await self._notify(message, await self._commands.handle(recipient_id, message))
+            return IngestOutcome.COMMAND
 
+        outcome = (await self._repo.ingest_response(recipient_id, message, self._debounce)).outcome
         if (notice := NOTICES.get(outcome)) is not None:
             await self._notify(message, notice)
         return outcome

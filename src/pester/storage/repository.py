@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -25,7 +25,9 @@ from pester.core.models import (
 from pester.core.states import EventType, JobStatus, check_transition, event_for
 from pester.storage.db import Database, from_db, to_db
 
-_JOB_COLUMNS = "pk, client_id, job_id, batch_id, status, content_hash, spec, created_at, updated_at"
+_JOB_COLUMNS = (
+    "pk, client_id, job_id, batch_id, status, content_hash, spec, created_at, updated_at, snoozed_until"
+)
 _J_JOB_COLUMNS = ", ".join(f"j.{c.strip()}" for c in _JOB_COLUMNS.split(","))
 
 # Jobs that occupy one of a recipient's outstanding slots.
@@ -60,6 +62,28 @@ class PendingDelivery:
     address: str
     message: OutboundMessage
     job: JobRecord
+
+
+@dataclass(frozen=True)
+class SchedulingSnapshot:
+    queued: list[JobRecord]
+    outstanding: dict[str, int]
+    recent_prompts: dict[str, list[datetime]]  # recipient -> prompt claim times since the snapshot cutoff
+    paused: set[str]
+
+
+@dataclass(frozen=True)
+class AwaitingJob:
+    job: JobRecord
+    sent_at: datetime
+    has_response: bool  # an answer is being collected (debounce window open)
+
+
+@dataclass(frozen=True)
+class RecipientStatus:
+    paused: bool
+    awaiting: list[AwaitingJob]
+    queued: int
 
 
 @dataclass(frozen=True)
@@ -194,22 +218,66 @@ class Repository:
 
     # ---- Scheduling ---------------------------------------------------------------------------------
 
-    async def queued_jobs(self) -> list[JobRecord]:
+    async def scheduling_snapshot(self, prompts_since: datetime) -> SchedulingSnapshot:
+        placeholders = ",".join("?" * len(OUTSTANDING))
+        claimed = (DeliveryStatus.PENDING, DeliveryStatus.SENDING, DeliveryStatus.SENT)
         async with self._db.read() as conn:
-            rows = await conn.execute_fetchall(
+            queued = await conn.execute_fetchall(
                 f"SELECT {_JOB_COLUMNS} FROM jobs WHERE status = ? ORDER BY pk", (JobStatus.QUEUED,)
             )
-        return [_to_record(row) for row in rows]
-
-    async def outstanding_counts(self) -> dict[str, int]:
-        placeholders = ",".join("?" * len(OUTSTANDING))
-        async with self._db.read() as conn:
-            rows = await conn.execute_fetchall(
+            outstanding = await conn.execute_fetchall(
                 f"SELECT recipient_id, COUNT(*) FROM jobs WHERE status IN ({placeholders}) "
                 "GROUP BY recipient_id",
                 tuple(OUTSTANDING),
             )
-        return {row[0]: int(row[1]) for row in rows}
+            prompts = await conn.execute_fetchall(
+                "SELECT j.recipient_id, d.created_at FROM deliveries d JOIN jobs j ON j.pk = d.job_pk "
+                "WHERE d.kind = ? AND d.status IN (?, ?, ?) AND d.created_at >= ?",
+                (DeliveryKind.PROMPT, *claimed, to_db(prompts_since)),
+            )
+            paused = await conn.execute_fetchall("SELECT recipient_id FROM recipient_state WHERE paused = 1")
+        recent: dict[str, list[datetime]] = {}
+        for row in prompts:
+            recent.setdefault(row[0], []).append(from_db(row[1]))
+        return SchedulingSnapshot(
+            queued=[_to_record(row) for row in queued],
+            outstanding={row[0]: int(row[1]) for row in outstanding},
+            recent_prompts=recent,
+            paused={row[0] for row in paused},
+        )
+
+    async def awaiting_jobs(self, recipient_id: str | None = None) -> list[AwaitingJob]:
+        """AWAITING jobs with the time their latest prompt was sent."""
+        where = "j.status = ?" + (" AND j.recipient_id = ?" if recipient_id else "")
+        params: tuple[Any, ...] = (
+            (JobStatus.AWAITING, recipient_id) if recipient_id else (JobStatus.AWAITING,)
+        )
+        async with self._db.read() as conn:
+            rows = await conn.execute_fetchall(
+                f"SELECT {_J_JOB_COLUMNS}, "
+                "(SELECT MAX(d.sent_at) FROM deliveries d WHERE d.job_pk = j.pk AND d.kind = 'PROMPT' "
+                " AND d.status = 'SENT') AS prompt_sent_at, "
+                "EXISTS (SELECT 1 FROM responses r WHERE r.job_pk = j.pk) AS has_response "
+                f"FROM jobs j WHERE {where} ORDER BY j.pk",
+                params,
+            )
+        return [
+            AwaitingJob(_to_record(row), from_db(row["prompt_sent_at"]), bool(row["has_response"]))
+            for row in rows
+            if row["prompt_sent_at"] is not None
+        ]
+
+    async def mark_unanswered(self, job_pk: int, sent_at: datetime, deadline: datetime) -> bool:
+        """AWAITING -> UNANSWERED, unless an answer arrived (or is being collected) in the meantime."""
+        async with self._db.transaction() as conn:
+            row = await _fetch_job_by_pk(conn, job_pk)
+            if row is None or row["status"] != JobStatus.AWAITING:
+                return False
+            if await _fetch_one(conn, "SELECT 1 FROM responses WHERE job_pk = ?", (job_pk,)):
+                return False
+            payload = {"delivery": {"sent_at": _iso(sent_at), "deadline": _iso(deadline)}}
+            await self._apply(conn, row, JobStatus.UNANSWERED, payload)
+            return True
 
     async def claim_for_send(self, job_pk: int, channel: str, address: str, message: OutboundMessage) -> bool:
         """QUEUED -> SENDING and create the pending prompt delivery. False if the job is no longer QUEUED."""
@@ -279,10 +347,10 @@ class Repository:
             if row["status"] != _EXPECTED_JOB_STATUS[delivery.kind]:
                 return  # the job was cancelled while the message was in flight
             if delivery.kind is DeliveryKind.PROMPT:
-                payload = {"delivery": {"channel": delivery.channel, "sent_at": to_db(sent_at)}}
+                payload = {"delivery": {"channel": delivery.channel, "sent_at": _iso(sent_at)}}
                 await self._apply(conn, row, JobStatus.AWAITING, payload)
             else:
-                payload = {"feedback": {"text": delivery.message.text, "sent_at": to_db(sent_at)}}
+                payload = {"feedback": {"text": delivery.message.text, "sent_at": _iso(sent_at)}}
                 await self._apply(conn, row, JobStatus.COMPLETED, payload)
 
     async def delivery_failed(self, delivery: PendingDelivery, error: str) -> None:
@@ -304,8 +372,15 @@ class Repository:
         async with self._db.transaction() as conn:
             return await self._record_inbound(conn, message, outcome)
 
-    async def ingest_response(self, recipient_id: str, message: InboundMessage) -> IngestResult:
-        """Route an inbound message to a job and record it, all in one transaction (spec §9.2)."""
+    async def ingest_response(
+        self, recipient_id: str, message: InboundMessage, debounce: timedelta = timedelta(0)
+    ) -> IngestResult:
+        """Route an inbound message to a job and record it, all in one transaction (spec §9.2).
+
+        With a debounce window, the answer is collected (follow-up messages are joined onto it) and the job
+        moves to ANSWERED only once the window closes, via ``close_due_responses``. A button press closes it
+        immediately.
+        """
         async with self._db.transaction() as conn:
             job_row = await self._route(conn, recipient_id, message)
             if isinstance(job_row, IngestOutcome):
@@ -319,38 +394,131 @@ class Repository:
             if not await self._record_inbound(conn, message, outcome):
                 return IngestResult(IngestOutcome.DUPLICATE)
 
-            response = HumanResponse(
-                interaction_id=job_row["job_id"],
-                text=message.text or message.selected_option or "",
-                selected_option=message.selected_option,
-                channel=message.channel,
-                address=message.sender_address,
-                external_id=message.external_id,
-                received_at=message.received_at,
-                raw=message.raw,
-            )
-            payload = {"response": _response_payload(response)}
+            text = message.text or message.selected_option or ""
             if outcome is IngestOutcome.LATE:
+                late = {
+                    "text": text,
+                    "selected_option": message.selected_option,
+                    "received_at": _iso(message.received_at),
+                }
                 await self._append_event(
-                    conn, job_row["client_id"], job_row["pk"], EventType.INTERACTION_LATE_RESPONSE, payload
+                    conn,
+                    job_row["client_id"],
+                    job_row["pk"],
+                    EventType.INTERACTION_LATE_RESPONSE,
+                    {"response": late},
                 )
                 return IngestResult(outcome, _to_record(job_row))
 
-            await conn.execute(
-                "INSERT INTO responses (job_pk, text, selected_option, channel, address, external_id, "
-                "received_at, raw) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    job_row["pk"],
-                    response.text,
-                    response.selected_option,
-                    response.channel,
-                    response.address,
-                    response.external_id,
-                    to_db(response.received_at),
-                    json.dumps(response.raw) if response.raw is not None else None,
-                ),
+            close_now = debounce <= timedelta(0) or message.selected_option is not None
+            closes_at = None if close_now else to_db(message.received_at + debounce)
+            existing = await _fetch_one(conn, "SELECT pk FROM responses WHERE job_pk = ?", (job_row["pk"],))
+            if existing is None:
+                await conn.execute(
+                    "INSERT INTO responses (job_pk, text, selected_option, channel, address, external_id, "
+                    "received_at, raw, closes_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        job_row["pk"],
+                        text,
+                        message.selected_option,
+                        message.channel,
+                        message.sender_address,
+                        message.external_id,
+                        to_db(message.received_at),
+                        json.dumps(message.raw) if message.raw is not None else None,
+                        closes_at,
+                    ),
+                )
+            else:
+                # Join onto the answer being collected. Feedback threads onto the latest message.
+                await conn.execute(
+                    "UPDATE responses SET text = text || char(10) || ?, "
+                    "selected_option = COALESCE(?, selected_option), external_id = ?, closes_at = ? "
+                    "WHERE pk = ?",
+                    (text, message.selected_option, message.external_id, closes_at, existing["pk"]),
+                )
+            if not close_now:
+                return IngestResult(outcome, _to_record(job_row))
+            return IngestResult(outcome, await self._close_response(conn, job_row))
+
+    async def close_due_responses(self, now: datetime) -> int:
+        """Close debounce windows that have elapsed, moving their jobs to ANSWERED."""
+        async with self._db.transaction() as conn:
+            rows = list(
+                await conn.execute_fetchall(
+                    f"SELECT {_J_JOB_COLUMNS} FROM responses r JOIN jobs j ON j.pk = r.job_pk "
+                    "WHERE r.closes_at IS NOT NULL AND r.closes_at <= ? AND j.status = ?",
+                    (to_db(now), JobStatus.AWAITING),
+                )
             )
-            return IngestResult(outcome, await self._apply(conn, job_row, JobStatus.ANSWERED, payload))
+            for row in rows:
+                await self._close_response(conn, row)
+            return len(rows)
+
+    async def _close_response(self, conn: aiosqlite.Connection, job_row: aiosqlite.Row) -> JobRecord:
+        await conn.execute("UPDATE responses SET closes_at = NULL WHERE job_pk = ?", (job_row["pk"],))
+        response = await _fetch_response(conn, job_row["pk"], job_row["job_id"])
+        assert response is not None
+        return await self._apply(conn, job_row, JobStatus.ANSWERED, {"response": _response_payload(response)})
+
+    # ---- Recipient commands -------------------------------------------------------------------------
+
+    async def command_target(self, recipient_id: str, message: InboundMessage) -> JobRecord | IngestOutcome:
+        """The AWAITING job a command refers to: the replied-to prompt, else the single open question."""
+        async with self._db.read() as conn:
+            row = await self._route(conn, recipient_id, message)
+        if isinstance(row, IngestOutcome):
+            return row
+        if row["status"] != JobStatus.AWAITING:
+            return IngestOutcome.NOTHING_PENDING
+        return _to_record(row)
+
+    async def skip(self, job_pk: int) -> bool:
+        return await self._close_by_recipient(job_pk, JobStatus.SKIPPED, {"by": "recipient"})
+
+    async def snooze(self, job_pk: int, until: datetime) -> bool:
+        return await self._close_by_recipient(job_pk, JobStatus.QUEUED, {"until": _iso(until)}, until)
+
+    async def _close_by_recipient(
+        self, job_pk: int, target: JobStatus, payload: dict[str, Any], snoozed_until: datetime | None = None
+    ) -> bool:
+        async with self._db.transaction() as conn:
+            row = await _fetch_job_by_pk(conn, job_pk)
+            if row is None or row["status"] != JobStatus.AWAITING:
+                return False
+            await conn.execute("DELETE FROM responses WHERE job_pk = ?", (job_pk,))  # drop a partial answer
+            if snoozed_until is not None:
+                await conn.execute(
+                    "UPDATE jobs SET snoozed_until = ? WHERE pk = ?", (to_db(snoozed_until), job_pk)
+                )
+            await self._apply(conn, row, target, payload)
+            return True
+
+    async def set_paused(self, recipient_id: str, paused: bool) -> None:
+        async with self._db.transaction() as conn:
+            await conn.execute(
+                "INSERT INTO recipient_state (recipient_id, paused, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT (recipient_id) DO UPDATE "
+                "SET paused = excluded.paused, updated_at = excluded.updated_at",
+                (recipient_id, int(paused), to_db(self._clock.now())),
+            )
+
+    async def recipient_status(self, recipient_id: str) -> RecipientStatus:
+        awaiting = await self.awaiting_jobs(recipient_id)
+        async with self._db.read() as conn:
+            paused = await _fetch_one(
+                conn, "SELECT paused FROM recipient_state WHERE recipient_id = ?", (recipient_id,)
+            )
+            queued = await _fetch_one(
+                conn,
+                "SELECT COUNT(*) AS n FROM jobs WHERE recipient_id = ? AND status = ?",
+                (recipient_id, JobStatus.QUEUED),
+            )
+        return RecipientStatus(
+            paused=bool(paused and paused["paused"]),
+            awaiting=awaiting,
+            queued=int(queued["n"]) if queued else 0,
+        )
 
     async def _route(
         self, conn: aiosqlite.Connection, recipient_id: str, message: InboundMessage
@@ -380,27 +548,14 @@ class Repository:
         async with self._db.read() as conn:
             row = await _fetch_one(
                 conn,
-                f"SELECT {_J_JOB_COLUMNS}, r.text, r.selected_option, r.channel AS r_channel, "
-                "r.address AS r_address, r.external_id AS r_external_id, r.received_at, r.raw "
-                "FROM jobs j JOIN responses r ON r.job_pk = j.pk "
-                "WHERE j.status = ? ORDER BY j.updated_at, j.pk LIMIT 1",
+                f"SELECT {_JOB_COLUMNS} FROM jobs WHERE status = ? ORDER BY updated_at, pk LIMIT 1",
                 (JobStatus.ANSWERED,),
             )
-        if row is None:
-            return None
-        return AnsweredJob(
-            job=_to_record(row),
-            response=HumanResponse(
-                interaction_id=row["job_id"],
-                text=row["text"],
-                selected_option=row["selected_option"],
-                channel=row["r_channel"],
-                address=row["r_address"],
-                external_id=row["r_external_id"],
-                received_at=from_db(row["received_at"]),
-                raw=json.loads(row["raw"]) if row["raw"] else None,
-            ),
-        )
+            if row is None:
+                return None
+            response = await _fetch_response(conn, row["pk"], row["job_id"])
+        assert response is not None
+        return AnsweredJob(job=_to_record(row), response=response)
 
     async def evaluation_succeeded(
         self,
@@ -465,8 +620,8 @@ class Repository:
                     "personality_fallback": personality_fallback,
                 },
                 "delivery": {
-                    "sent_at": to_db(sent_at),
-                    "answered_at": to_db(answered_at),
+                    "sent_at": _iso(sent_at),
+                    "answered_at": _iso(answered_at),
                     "response_latency_s": round((answered_at - sent_at).total_seconds(), 3),
                 },
             }
@@ -620,6 +775,11 @@ class Repository:
         )
 
 
+def _iso(dt: datetime) -> str:
+    """Timestamps in event payloads match the event envelope's ISO format."""
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 def _json_or_none(value: object) -> str | None:
     return json.dumps(value) if value is not None else None
 
@@ -628,7 +788,7 @@ def _response_payload(response: HumanResponse) -> dict[str, Any]:
     return {
         "text": response.text,
         "selected_option": response.selected_option,
-        "received_at": to_db(response.received_at),
+        "received_at": _iso(response.received_at),
     }
 
 
@@ -640,6 +800,22 @@ async def _fetch_one(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ..
 async def _fetch_job(conn: aiosqlite.Connection, client_id: str, job_id: str) -> aiosqlite.Row | None:
     return await _fetch_one(
         conn, f"SELECT {_JOB_COLUMNS} FROM jobs WHERE client_id = ? AND job_id = ?", (client_id, job_id)
+    )
+
+
+async def _fetch_response(conn: aiosqlite.Connection, job_pk: int, job_id: str) -> HumanResponse | None:
+    row = await _fetch_one(conn, "SELECT * FROM responses WHERE job_pk = ?", (job_pk,))
+    if row is None:
+        return None
+    return HumanResponse(
+        interaction_id=job_id,
+        text=row["text"],
+        selected_option=row["selected_option"],
+        channel=row["channel"],
+        address=row["address"],
+        external_id=row["external_id"],
+        received_at=from_db(row["received_at"]),
+        raw=json.loads(row["raw"]) if row["raw"] else None,
     )
 
 
@@ -656,5 +832,6 @@ def _to_record(row: aiosqlite.Row) -> JobRecord:
         status=JobStatus(row["status"]),
         created_at=from_db(row["created_at"]),
         updated_at=from_db(row["updated_at"]),
+        snoozed_until=from_db(row["snoozed_until"]) if row["snoozed_until"] else None,
         spec=InteractionJob.model_validate_json(row["spec"]),
     )

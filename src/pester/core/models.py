@@ -96,6 +96,7 @@ class JobRecord(_Model):
     status: JobStatus
     created_at: UtcDatetime
     updated_at: UtcDatetime
+    snoozed_until: UtcDatetime | None = None  # scheduler-owned; the spec itself never changes
     spec: InteractionJob
 
 
