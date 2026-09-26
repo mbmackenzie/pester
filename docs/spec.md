@@ -112,7 +112,6 @@ A single async Python process:
 ```python
 class InteractionJob(BaseModel):
     id: str | None = None             # producer-supplied for idempotent retries; else server ULID
-    batch_id: str | None = None
     recipient_id: str
     prompt: str
     response_options: list[str] | None = None   # rendered as buttons where supported
@@ -123,7 +122,9 @@ class InteractionJob(BaseModel):
     provenance: Provenance | None = None
 ```
 
-Identity is `(client_id, id)`. Two producers cannot collide.
+Identity is `(client_id, id)`. Two producers cannot collide. `id` must match `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`.
+
+A job's `batch_id` is assigned only by `POST /batches`. It is not a field producers set on individual jobs.
 
 ### 4.2 EvaluationSpec
 
@@ -417,7 +418,7 @@ personalities:
 
 A SQLite file in WAL mode, accessed through `aiosqlite` with numbered `.sql` migrations and a `schema_version` table.
 
-Tables: `batches`, `jobs`, `deliveries`, `responses`, `evaluations`, `events`, `recipient_state`, `schema_version`. Clients, recipients, and personalities live in config, not the database.
+Tables: `batches`, `jobs`, `deliveries`, `responses`, `evaluations`, `events`, `recipient_state`, `schema_version`. Each table is added by a migration in the milestone that first uses it (M1: `batches`, `jobs`, `events`). Clients, recipients, and personalities live in config, not the database.
 
 Unique constraints:
 
