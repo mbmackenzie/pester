@@ -1,0 +1,26 @@
+# Pester as a Dockge (or plain `docker compose`) stack. Paste this into a new Dockge stack.
+#
+# The image is built from the GitHub repo, so nothing has to be published. Once images are published,
+# replace `build:` with `image: ghcr.io/mbmackenzie/pester:latest`.
+#
+# Keep port 8000 on your LAN: the admin UI and the dev routes are not meant for the internet.
+# Pester only needs outbound access (your LLM provider, and later your messaging channels).
+
+services:
+  pester:
+    build: https://github.com/mbmackenzie/pester.git#main
+    container_name: pester
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data   # the SQLite database (back up this directory) and config.yaml
+    environment:
+      # Clients, recipients, and personalities come from a YAML file until they move into the database (M6).
+      # Put a copy of config.example.yaml at ./data/config.yaml and uncomment:
+      # PESTER_CONFIG: /data/config.yaml
+      # Until the admin UI can configure channels, dev mode enables the mock channel so you can try the
+      # loop end to end. It also mounts unauthenticated /dev chat routes, so keep it LAN-only.
+      PESTER_DEV_MODE: "true"
+      PESTER_LOG_FORMAT: text   # or json
+      # OPENAI_API_KEY: sk-...   # enables LLM grading and LLM personalities; echo evaluation without it

@@ -1,0 +1,15 @@
+.git
+.venv
+.env
+.github
+.hypothesis
+.pytest_cache
+.ruff_cache
+**/__pycache__
+*.sqlite
+*.sqlite-*
+config.yaml
+data
+tests
+docs
+fixtures
