@@ -12,6 +12,7 @@ from pester.core.clock import Clock
 from pester.storage.db import Database, from_db, to_db
 
 MAX_PENDING = 50  # beyond this, new requests are dropped: a public bot shouldn't fill the database
+MAX_TEXT = 500  # of the first message kept with a request
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
@@ -67,6 +68,7 @@ class PairingStore:
         (None, False) when too many requests are pending.
         """
         now = to_db(self._clock.now())
+        text = text[:MAX_TEXT] if text else text
         async with self._db.transaction() as conn:
             existing = list(
                 await conn.execute_fetchall(

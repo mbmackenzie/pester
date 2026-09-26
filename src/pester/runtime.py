@@ -51,6 +51,7 @@ class Runtime:
         self._store = store
         self._builder = builder
         self._failed_version = 0
+        self._reload_lock = asyncio.Lock()  # the config step and the admin service both reload
         self.manager = manager
         self.channels = manager.channels  # updated in place as channels start and stop
         self.pairing = PairingDesk(pairings, service, manager, live) if pairings and service else None
@@ -88,6 +89,11 @@ class Runtime:
         """
         if self._store is None or self._builder is None:
             return 0
+        async with self._reload_lock:
+            return await self._reload()
+
+    async def _reload(self) -> int:
+        assert self._store is not None and self._builder is not None
         version = await self._store.latest_version()
         if version <= self.live.current.version or version == self._failed_version:
             return 0

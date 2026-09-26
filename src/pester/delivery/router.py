@@ -42,8 +42,13 @@ class ResponseRouter:
             return None
         for recipient_id, recipient in self._live.current.config.recipients.items():
             channel_config = recipient.channels.get(channel)
-            if channel_config is not None and instance.address_of(channel_config) == address:
-                return recipient_id
+            if channel_config is None:
+                continue
+            try:
+                if instance.address_of(channel_config) == address:
+                    return recipient_id
+            except ValueError as exc:  # one malformed entry mustn't stop routing for everyone
+                log.warning("recipient %s: bad %s config: %s", recipient_id, channel, exc)
         return None
 
     async def handle(self, message: InboundMessage) -> IngestOutcome | None:

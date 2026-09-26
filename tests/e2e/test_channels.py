@@ -226,3 +226,54 @@ async def test_dev_mode_adds_a_mock_channel_only_when_none_is_configured(
         assert set(runtime_of(app).channels) == {"fake"}
         await set_channels(app, {"mock": {"type": "mock"}})
         assert set(runtime_of(app).channels) == {"mock"}  # the configured one replaces the implicit one
+
+
+class CountingAdapter:
+    description = "counts how many channels it creates"
+    options_model = MockAdapter.options_model
+    created = 0
+
+    def create(self, name: str, options: Any, services: ChannelServices) -> InMemoryChannel:
+        type(self).created += 1
+        assert isinstance(services.clock, FakeClock)
+        return InMemoryChannel(services.clock, name)
+
+
+async def test_concurrent_reloads_start_a_channel_once(client: httpx.AsyncClient, app: FastAPI) -> None:
+    import asyncio
+
+    CountingAdapter.created = 0
+    store = app.state.config_store
+    data = app.state.pester.config.model_dump(mode="json")
+    data["channels"] = {"counted": {"type": "tests.e2e.test_channels:CountingAdapter"}}
+    await store.save(PesterConfig.model_validate(data), "add counted channel")
+    # The config step and an admin save can reload at the same moment.
+    results = await asyncio.gather(*(runtime_of(app).reload_config() for _ in range(3)))
+    assert sorted(results) == [0, 0, 1]
+    assert CountingAdapter.created == 1
+    assert runtime_of(app).started_channels == {"counted"}
+
+
+async def test_a_malformed_recipient_entry_affects_only_that_recipient(
+    client: httpx.AsyncClient, app: FastAPI
+) -> None:
+    await set_channels(app, {"fake": {"type": "mock"}})
+    store = app.state.config_store
+    data = app.state.pester.config.model_dump(mode="json")
+    data["recipients"]["sam"]["channels"] = {"fake": {"adress": "typo"}}  # no "address"
+    await store.save(PesterConfig.model_validate(data), "bad entry for sam")
+    await runtime_of(app).reload_config()
+
+    job = job_payload(response_options=["Yes", "No"], evaluation={"evaluator": "rule", "prompt": "match"})
+    for recipient in ("sam", "kate"):
+        resp = await client.post(
+            "/api/v1/jobs", json={**job, "recipient_id": recipient}, headers=auth(TOKEN_A)
+        )
+        assert resp.status_code == 201
+    await runtime_of(app).run_until_idle()
+    mock = runtime_of(app).channels["fake"]
+    assert isinstance(mock, MockChannel)
+    assert len(mock.sent("kate")) == 1  # kate is unaffected
+    await mock.inject("kate", "Yes", reply_to=1)  # routing still works
+    await runtime_of(app).run_until_idle()
+    assert mock.sent("kate")[-1].text == "Recorded: Yes."

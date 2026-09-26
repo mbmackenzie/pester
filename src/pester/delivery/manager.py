@@ -4,6 +4,7 @@ When config changes, only channels whose effective config changed are restarted;
 Workers hold ``channels``, a dict this manager updates in place, so they always see the current instances.
 """
 
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -62,6 +63,7 @@ class ChannelManager:
         self._errors: dict[str, str] = {}
         self._configured: dict[str, ChannelConfig] = {}
         self._started: set[str] = set()
+        self._lock = asyncio.Lock()  # one lifecycle change at a time
         self.channels: dict[str, DeliveryChannel] = dict(self._injected)
 
     @property
@@ -100,6 +102,10 @@ class ChannelManager:
 
     async def sync(self, snapshot: Snapshot, on_inbound: InboundHandler) -> None:
         """Start, restart, and stop configured channels to match ``snapshot``."""
+        async with self._lock:
+            await self._sync(snapshot, on_inbound)
+
+    async def _sync(self, snapshot: Snapshot, on_inbound: InboundHandler) -> None:
         wanted = self.effective(snapshot)
         self._configured = wanted
         for name in list(self._running):
@@ -116,6 +122,10 @@ class ChannelManager:
             await self._replace(name, config, snapshot, fingerprint, on_inbound)
 
     async def restart(self, name: str, snapshot: Snapshot, on_inbound: InboundHandler) -> None:
+        async with self._lock:
+            await self._restart(name, snapshot, on_inbound)
+
+    async def _restart(self, name: str, snapshot: Snapshot, on_inbound: InboundHandler) -> None:
         if name in self._injected:
             channel = self._injected[name]
             await self._stop_channel(name, channel)
@@ -127,10 +137,11 @@ class ChannelManager:
         await self._replace(name, config, snapshot, self._fingerprint(name, config, snapshot), on_inbound)
 
     async def stop_all(self) -> None:
-        for name in list(self._started):
-            channel = self.channels.get(name)
-            if channel is not None:
-                await self._stop_channel(name, channel)
+        async with self._lock:
+            for name in list(self._started):
+                channel = self.channels.get(name)
+                if channel is not None:
+                    await self._stop_channel(name, channel)
 
     async def _replace(
         self,

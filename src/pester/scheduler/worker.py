@@ -109,7 +109,10 @@ class SchedulerWorker:
         names = [job.spec.delivery.channel] if job.spec.delivery.channel else list(recipient.channels)
         for name in names:
             if name in self._channels and name in recipient.channels:
-                return name, self._channels[name].address_of(recipient.channels[name])
+                try:
+                    return name, self._channels[name].address_of(recipient.channels[name])
+                except ValueError as exc:  # leave the job queued; the rest of the pass goes on
+                    log.warning("recipient %s: bad %s config: %s", job.spec.recipient_id, name, exc)
         return None
 
 
