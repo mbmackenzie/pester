@@ -47,6 +47,10 @@ class ResponseRouter:
     async def handle(self, message: InboundMessage) -> IngestOutcome | None:
         """Route one inbound message. Returns the outcome, or None if the sender is unknown."""
         recipient_id = self.recipient_for(message.channel, message.sender_address)
+        context = {"recipient_id": recipient_id, "channel": message.channel}
+        if recipient_id is not None:
+            kind = f"command /{message.command.name}" if message.command else "message"
+            log.info("%s from %s", kind, recipient_id, extra=context)
         if recipient_id is None:
             log.warning(
                 "dropping message from unknown sender %s on %s", message.sender_address, message.channel

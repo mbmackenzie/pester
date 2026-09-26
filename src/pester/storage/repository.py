@@ -1,6 +1,7 @@
 """All persistence. Every state change and its event are written in one transaction."""
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -25,8 +26,11 @@ from pester.core.models import (
 from pester.core.states import EventType, JobStatus, check_transition, event_for
 from pester.storage.db import Database, from_db, to_db
 
+log = logging.getLogger(__name__)
+
 _JOB_COLUMNS = (
-    "pk, client_id, job_id, batch_id, status, content_hash, spec, created_at, updated_at, snoozed_until"
+    "pk, client_id, job_id, batch_id, recipient_id, status, content_hash, spec, created_at, updated_at, "
+    "snoozed_until"
 )
 _J_JOB_COLUMNS = ", ".join(f"j.{c.strip()}" for c in _JOB_COLUMNS.split(","))
 
@@ -216,6 +220,11 @@ class Repository:
             )
             for row in rows
         ]
+
+    async def ping(self) -> None:
+        """Raises unless the database accepts a write transaction."""
+        async with self._db.transaction() as conn:
+            await conn.execute("SELECT 1")
 
     # ---- Scheduling ---------------------------------------------------------------------------------
 
@@ -457,11 +466,7 @@ class Repository:
                     "received_at": _iso(message.received_at),
                 }
                 await self._append_event(
-                    conn,
-                    job_row["client_id"],
-                    job_row["pk"],
-                    EventType.INTERACTION_LATE_RESPONSE,
-                    {"response": late},
+                    conn, job_row, EventType.INTERACTION_LATE_RESPONSE, {"response": late}
                 )
                 return IngestResult(outcome, _to_record(job_row))
 
@@ -737,7 +742,7 @@ class Repository:
             (target, to_db(self._clock.now()), row["pk"]),
         )
         if (event_type := event_for(current, target)) is not None:
-            await self._append_event(conn, row["client_id"], row["pk"], event_type, payload or {})
+            await self._append_event(conn, row, event_type, payload or {})
         updated = await _fetch_job_by_pk(conn, row["pk"])
         assert updated is not None
         return _to_record(updated)
@@ -778,9 +783,9 @@ class Repository:
             ),
         )
         assert cursor.lastrowid is not None
-        await self._append_event(conn, client_id, cursor.lastrowid, EventType.INTERACTION_QUEUED, {})
         row = await _fetch_job(conn, client_id, job_id)
         assert row is not None
+        await self._append_event(conn, row, EventType.INTERACTION_QUEUED, {})
         return row
 
     async def _insert_delivery(
@@ -818,15 +823,34 @@ class Repository:
     async def _append_event(
         self,
         conn: aiosqlite.Connection,
-        client_id: str,
-        job_pk: int,
+        job_row: aiosqlite.Row,
         event_type: EventType,
         payload: dict[str, Any],
     ) -> None:
         await conn.execute(
             "INSERT INTO events (event_id, client_id, job_pk, type, payload, occurred_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (new_id(), client_id, job_pk, event_type, json.dumps(payload), to_db(self._clock.now())),
+            (
+                new_id(),
+                job_row["client_id"],
+                job_row["pk"],
+                event_type,
+                json.dumps(payload),
+                to_db(self._clock.now()),
+            ),
+        )
+        # One log line per event, written where the event is, so the two can't disagree.
+        log.info(
+            "%s %s",
+            event_type,
+            job_row["job_id"],
+            extra={
+                "event": event_type,
+                "interaction_id": job_row["job_id"],
+                "batch_id": job_row["batch_id"],
+                "client_id": job_row["client_id"],
+                "recipient_id": job_row["recipient_id"],
+            },
         )
 
 

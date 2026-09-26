@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     port: int = 8000
     dev_mode: bool = False  # enables the fake channel and the unauthenticated /dev routes
     run_workers: bool = True  # tests disable this and drive workers with Runtime.run_until_idle()
+    log_level: str = "INFO"
+    log_format: Literal["text", "json"] = "text"
     openai_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("OPENAI_API_KEY", "PESTER_OPENAI_API_KEY")
     )

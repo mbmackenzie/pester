@@ -9,11 +9,13 @@ def _serve(args: argparse.Namespace) -> None:
     import uvicorn
 
     from pester.config import Settings
+    from pester.logs import configure_logging
     from pester.main import create_app
 
     overrides = {"config": args.config, "host": args.host, "port": args.port}
     settings = Settings(**{k: v for k, v in overrides.items() if v is not None})
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
+    configure_logging(settings.log_level, settings.log_format)
+    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_config=None)
 
 
 def _hash_token(args: argparse.Namespace) -> None:
