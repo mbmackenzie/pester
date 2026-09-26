@@ -60,6 +60,7 @@ def create_app(
         runtime = Runtime(repo, state.config, state.clock, channels, state.evaluators, state.personalities)
         app.state.repo = repo
         app.state.runtime = runtime
+        await runtime.recover()
         await runtime.start_channels()
         if settings.run_workers:
             runtime.start_workers()

@@ -32,12 +32,13 @@ class Runtime:
         evaluators: EvaluatorRegistry,
         personalities: PersonalityRegistry,
     ) -> None:
+        self._repo = repo
         self.channels: Mapping[str, DeliveryChannel] = {c.name: c for c in channels}
         self.evaluators = evaluators
         self.personalities = personalities
         self.router = ResponseRouter(repo, config, self.channels, clock)
         self.scheduler = SchedulerWorker(repo, config, self.channels, clock, personalities)
-        self.delivery = DeliveryWorker(repo, self.channels)
+        self.delivery = DeliveryWorker(repo, self.channels, clock, config.delivery)
         self.evaluation = EvaluationWorker(repo, evaluators, personalities, clock)
         self._steps: dict[str, Callable[[], Awaitable[int]]] = {
             "scheduler": self.scheduler.run_once,
@@ -46,6 +47,11 @@ class Runtime:
         }
         self._wake = {name: asyncio.Event() for name in self._steps}
         self._tasks: list[asyncio.Task[None]] = []
+
+    async def recover(self) -> None:
+        """Resolve work a crash left in flight. Everything else resumes from its persisted state."""
+        if recovered := await self._repo.recover_interrupted_sends():
+            log.warning("resolved %d delivery(ies) interrupted mid-send; they were not resent", recovered)
 
     async def start_channels(self) -> None:
         for channel in self.channels.values():

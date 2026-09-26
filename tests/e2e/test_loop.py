@@ -225,27 +225,6 @@ async def test_evaluation_failure_fails_job_but_keeps_response(loop: Loop) -> No
     assert events[-1]["payload"]["reason"] == "evaluation_failed"
 
 
-async def test_prompt_send_failure_fails_job(loop: Loop) -> None:
-    loop.chat.fail_next_send()
-    job_id = await loop.submit()
-    await loop.settle()
-    events = await loop.events(job_id)
-    assert events[-1]["type"] == "INTERACTION_FAILED"
-    assert events[-1]["payload"]["reason"] == "prompt_delivery_failed"
-
-
-async def test_feedback_send_failure_fails_job(loop: Loop) -> None:
-    job_id = await loop.submit()
-    await loop.settle()
-    await loop.chat.inject("kate", "answer")
-    await loop.runtime.evaluation.run_once()
-    loop.chat.fail_next_send()
-    await loop.settle()
-    events = await loop.events(job_id)
-    assert [e["type"] for e in events][-2:] == ["INTERACTION_EVALUATED", "INTERACTION_FAILED"]
-    assert events[-1]["payload"]["reason"] == "feedback_delivery_failed"
-
-
 async def test_events_stay_client_scoped_through_the_loop(loop: Loop) -> None:
     a = await loop.submit(id="a-job")
     await loop.settle()

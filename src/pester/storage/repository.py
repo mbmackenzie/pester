@@ -62,6 +62,7 @@ class PendingDelivery:
     address: str
     message: OutboundMessage
     job: JobRecord
+    attempts: int  # including the one about to be made
 
 
 @dataclass(frozen=True)
@@ -300,18 +301,20 @@ class Repository:
     # ---- Delivery -----------------------------------------------------------------------------------
 
     async def claim_next_delivery(self) -> PendingDelivery | None:
-        """Mark the oldest pending delivery SENDING and return it.
+        """Mark the oldest due pending delivery SENDING and return it.
 
-        Deliveries whose job has moved on (e.g. was cancelled) are marked CANCELLED and skipped.
+        Deliveries whose job has moved on (e.g. was cancelled) are marked CANCELLED and skipped. Deliveries
+        waiting to be retried are not due until their ``next_attempt_at``.
         """
         async with self._db.transaction() as conn:
             while True:
                 row = await _fetch_one(
                     conn,
-                    f"SELECT d.pk AS d_pk, d.kind, d.channel, d.address, d.message, {_J_JOB_COLUMNS} "
-                    "FROM deliveries d JOIN jobs j ON j.pk = d.job_pk "
-                    "WHERE d.status = ? ORDER BY d.pk LIMIT 1",
-                    (DeliveryStatus.PENDING,),
+                    f"SELECT d.pk AS d_pk, d.kind, d.channel, d.address, d.message, d.attempts, "
+                    f"{_J_JOB_COLUMNS} FROM deliveries d JOIN jobs j ON j.pk = d.job_pk "
+                    "WHERE d.status = ? AND (d.next_attempt_at IS NULL OR d.next_attempt_at <= ?) "
+                    "ORDER BY d.pk LIMIT 1",
+                    (DeliveryStatus.PENDING, to_db(self._clock.now())),
                 )
                 if row is None:
                     return None
@@ -334,6 +337,7 @@ class Repository:
                     address=row["address"],
                     message=OutboundMessage.model_validate_json(row["message"]),
                     job=_to_record(row),
+                    attempts=int(row["attempts"]) + 1,
                 )
 
     async def delivery_sent(self, delivery: PendingDelivery, external_id: str, sent_at: datetime) -> None:
@@ -353,7 +357,21 @@ class Repository:
                 payload = {"feedback": {"text": delivery.message.text, "sent_at": _iso(sent_at)}}
                 await self._apply(conn, row, JobStatus.COMPLETED, payload)
 
-    async def delivery_failed(self, delivery: PendingDelivery, error: str) -> None:
+    async def delivery_retry(self, delivery: PendingDelivery, error: str, next_attempt_at: datetime) -> None:
+        async with self._db.transaction() as conn:
+            await conn.execute(
+                "UPDATE deliveries SET status = ?, error = ?, next_attempt_at = ?, updated_at = ? "
+                "WHERE pk = ?",
+                (
+                    DeliveryStatus.PENDING,
+                    error,
+                    to_db(next_attempt_at),
+                    to_db(self._clock.now()),
+                    delivery.pk,
+                ),
+            )
+
+    async def delivery_failed(self, delivery: PendingDelivery, error: str, reason: str | None = None) -> None:
         async with self._db.transaction() as conn:
             await conn.execute(
                 "UPDATE deliveries SET status = ?, error = ?, updated_at = ? WHERE pk = ?",
@@ -362,8 +380,45 @@ class Repository:
             row = await _fetch_job_by_pk(conn, delivery.job.pk)
             assert row is not None
             if row["status"] == _EXPECTED_JOB_STATUS[delivery.kind]:
-                reason = f"{delivery.kind.lower()}_delivery_failed"
-                await self._apply(conn, row, JobStatus.FAILED, {"reason": reason, "error": error})
+                payload = {
+                    "reason": reason or f"{delivery.kind.lower()}_delivery_failed",
+                    "error": error,
+                    "attempts": delivery.attempts,
+                }
+                await self._apply(conn, row, JobStatus.FAILED, payload)
+
+    async def recover_interrupted_sends(self) -> int:
+        """Resolve deliveries left SENDING by a crash (spec §9.1). They are never resent.
+
+        A person may or may not have received the message, and a duplicate is worse than a lost message. An
+        interrupted prompt fails its job (``ambiguous_send``). An interrupted feedback message completes its
+        job, flagged ``delivery_uncertain``: the evaluation is intact either way.
+        """
+        async with self._db.transaction() as conn:
+            rows = list(
+                await conn.execute_fetchall(
+                    f"SELECT d.pk AS d_pk, d.kind, d.message, {_J_JOB_COLUMNS} "
+                    "FROM deliveries d JOIN jobs j ON j.pk = d.job_pk WHERE d.status = ?",
+                    (DeliveryStatus.SENDING,),
+                )
+            )
+            now = to_db(self._clock.now())
+            for row in rows:
+                await conn.execute(
+                    "UPDATE deliveries SET status = ?, error = ?, updated_at = ? WHERE pk = ?",
+                    (DeliveryStatus.FAILED, "interrupted mid-send; not retried", now, row["d_pk"]),
+                )
+                kind = DeliveryKind(row["kind"])
+                if row["status"] != _EXPECTED_JOB_STATUS[kind]:
+                    continue
+                if kind is DeliveryKind.PROMPT:
+                    payload: dict[str, Any] = {"reason": "ambiguous_send", "error": "interrupted mid-send"}
+                    await self._apply(conn, row, JobStatus.FAILED, payload)
+                else:
+                    text = OutboundMessage.model_validate_json(row["message"]).text
+                    payload = {"feedback": {"text": text, "sent_at": None, "delivery_uncertain": True}}
+                    await self._apply(conn, row, JobStatus.COMPLETED, payload)
+            return len(rows)
 
     # ---- Inbound ------------------------------------------------------------------------------------
 

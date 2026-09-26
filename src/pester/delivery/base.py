@@ -9,7 +9,15 @@ InboundHandler = Callable[[InboundMessage], Awaitable[None]]
 
 
 class ChannelError(Exception):
-    """Raised by channels when a message could not be sent."""
+    """The message was definitely NOT delivered, and trying again later may work. Pester retries these.
+
+    Channels must only raise this when they are sure nothing reached the person. Any other exception from
+    ``send`` means the outcome is unknown, and Pester fails the delivery rather than risk a duplicate.
+    """
+
+
+class PermanentChannelError(ChannelError):
+    """The message was not delivered and never will be (e.g. the person blocked the bot). Not retried."""
 
 
 class DeliveryChannel(Protocol):
