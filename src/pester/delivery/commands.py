@@ -8,6 +8,7 @@ from pester.core.clock import Clock
 from pester.core.durations import parse_duration
 from pester.core.messages import InboundMessage
 from pester.core.models import JobRecord
+from pester.live import LiveConfig
 from pester.storage.repository import IngestOutcome, Repository
 
 HELP = "Commands: /skip, /snooze 2h, /pause, /resume, /status"
@@ -15,10 +16,14 @@ DEFAULT_SNOOZE = timedelta(hours=1)
 
 
 class CommandHandler:
-    def __init__(self, repo: Repository, config: PesterConfig, clock: Clock) -> None:
+    def __init__(self, repo: Repository, live: LiveConfig, clock: Clock) -> None:
         self._repo = repo
-        self._config = config
+        self._live = live
         self._clock = clock
+
+    @property
+    def _config(self) -> PesterConfig:
+        return self._live.current.config
 
     async def handle(self, recipient_id: str, message: InboundMessage) -> str:
         assert message.command is not None

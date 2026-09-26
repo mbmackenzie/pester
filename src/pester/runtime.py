@@ -7,15 +7,14 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from pester.config import PesterConfig
+from pester.configstore import ConfigStore
 from pester.core.clock import Clock
 from pester.core.messages import InboundMessage
 from pester.delivery.base import DeliveryChannel
 from pester.delivery.router import ResponseRouter
 from pester.delivery.worker import DeliveryWorker
-from pester.evaluation.base import EvaluatorRegistry
 from pester.evaluation.worker import EvaluationWorker
-from pester.personality.registry import PersonalityRegistry
+from pester.live import LiveConfig, SnapshotBuilder
 from pester.scheduler.worker import SchedulerWorker
 from pester.storage.repository import Repository
 
@@ -35,21 +34,25 @@ class Runtime:
     def __init__(
         self,
         repo: Repository,
-        config: PesterConfig,
+        live: LiveConfig,
         clock: Clock,
         channels: Sequence[DeliveryChannel],
-        evaluators: EvaluatorRegistry,
-        personalities: PersonalityRegistry,
+        *,
+        store: ConfigStore | None = None,
+        builder: SnapshotBuilder | None = None,
     ) -> None:
         self._repo = repo
+        self.live = live
+        self._store = store
+        self._builder = builder
+        self._failed_version = 0
         self.channels: Mapping[str, DeliveryChannel] = {c.name: c for c in channels}
-        self.evaluators = evaluators
-        self.personalities = personalities
-        self.router = ResponseRouter(repo, config, self.channels, clock)
-        self.scheduler = SchedulerWorker(repo, config, self.channels, clock, personalities)
-        self.delivery = DeliveryWorker(repo, self.channels, clock, config.delivery)
-        self.evaluation = EvaluationWorker(repo, evaluators, personalities, clock)
+        self.router = ResponseRouter(repo, live, self.channels, clock)
+        self.scheduler = SchedulerWorker(repo, live, self.channels, clock)
+        self.delivery = DeliveryWorker(repo, self.channels, clock, live)
+        self.evaluation = EvaluationWorker(repo, live, clock)
         self._steps: dict[str, Callable[[], Awaitable[int]]] = {
+            "config": self.reload_config,
             "scheduler": self.scheduler.run_once,
             "delivery": self.delivery.run_once,
             "evaluation": self.evaluation.run_once,
@@ -61,6 +64,34 @@ class Runtime:
         self._clock = clock
         self._last_ok: dict[str, datetime] = {}
         self._last_error: dict[str, str] = {}
+
+    async def reload_config(self) -> int:
+        """Put the latest stored config into effect if it's newer. Returns 1 if it changed, else 0.
+
+        Picks up changes from the admin UI and from the CLI running in another process. A version that
+        can't be built (e.g. a personality whose import path no longer resolves) is logged once and skipped;
+        the current config stays in effect.
+        """
+        if self._store is None or self._builder is None:
+            return 0
+        version = await self._store.latest_version()
+        if version <= self.live.current.version or version == self._failed_version:
+            return 0
+        stored = await self._store.latest()
+        assert stored is not None
+        try:
+            snapshot = self._builder.build(stored.version, stored.config, await self._store.secrets())
+        except Exception:
+            log.exception(
+                "config version %d can't be put into effect; keeping version %d",
+                version,
+                self.live.current.version,
+            )
+            self._failed_version = version
+            return 0
+        await self.live.publish(snapshot)
+        log.info("config version %d is in effect (%s)", version, stored.comment)
+        return 1
 
     async def recover(self) -> None:
         """Resolve work a crash left in flight. Everything else resumes from its persisted state."""

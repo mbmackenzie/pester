@@ -5,6 +5,7 @@ from datetime import timedelta
 from pester.config import DeliveryConfig
 from pester.core.clock import Clock
 from pester.delivery.base import ChannelError, DeliveryChannel, PermanentChannelError
+from pester.live import LiveConfig
 from pester.storage.repository import PendingDelivery, Repository
 
 log = logging.getLogger(__name__)
@@ -22,12 +23,16 @@ class DeliveryWorker:
         repo: Repository,
         channels: Mapping[str, DeliveryChannel],
         clock: Clock,
-        config: DeliveryConfig | None = None,
+        live: LiveConfig,
     ) -> None:
         self._repo = repo
         self._channels = channels
         self._clock = clock
-        self._config = config or DeliveryConfig()
+        self._live = live
+
+    @property
+    def _config(self) -> DeliveryConfig:
+        return self._live.current.config.delivery
 
     async def run_once(self) -> int:
         """Send the oldest due delivery. Returns the number of deliveries attempted (0 or 1)."""
