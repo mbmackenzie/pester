@@ -10,36 +10,79 @@ same way).
 ## Network model
 
 Pester is **LAN-only** by design. Nothing needs to reach it from the internet: producers on your network
-call its API, and it makes only outbound connections (your LLM provider, and messaging channels once they
-exist). Don't port-forward 8000 or put it behind a public reverse proxy. The admin UI uses a single admin
-password, which is fine on a LAN and not fine on the internet.
+call its API, and it makes only outbound connections (your LLM provider and your messaging channels).
+Don't port-forward 8000 or put it behind a public reverse proxy. The admin UI uses a single admin password,
+which is fine on a LAN and not fine on the internet.
 
 ## Dockge walkthrough
 
-1. In Dockge, click **+ Compose**, name the stack `pester`, and paste [`compose.yaml`](../compose.yaml).
-2. Until config moves into the database (M6), clients and recipients come from a YAML file. On the server,
-   in the stack's directory (e.g. `/opt/stacks/pester`):
+1. In Dockge, click **+ Compose**, name the stack `pester`, paste [`compose.yaml`](../compose.yaml), and
+   **Deploy**. The first deploy builds the image, which takes a minute or two.
+2. Open `http://<server>:8000/admin` and set the admin password. The setup code it asks for is in the
+   stack's logs (see [Admin UI](#admin-ui)).
+3. Configure Pester. Config lives in the database, so there's no file to edit. Until the admin UI's edit
+   forms land, use the CLI inside the container. In Dockge, open the stack's terminal (or run
+   `docker compose exec pester sh` on the server):
 
    ```sh
-   mkdir -p data
-   curl -o data/config.yaml https://raw.githubusercontent.com/mbmackenzie/pester/main/config.example.yaml
+   pester channel add mock --type mock          # a messenger built into Pester, for trying it out
+   pester llm key                               # optional: paste an OpenAI key for LLM grading
    ```
 
-   Create a producer token (`pester hash-token` in a checkout, or once the stack is up:
-   `docker compose exec pester pester hash-token`), put the hash in `data/config.yaml`, and uncomment
-   `PESTER_CONFIG` in the compose file.
-3. Optionally set `OPENAI_API_KEY` in the compose file (or in Dockge's `.env` editor) for LLM grading.
-   Without it, `llm` evaluations are echoed back.
-4. **Deploy.** The first deploy builds the image, which takes a minute or two.
-5. Check it: `http://<server>:8000/ready` should say `"ready"`.
-6. Open `http://<server>:8000/admin` and set the admin password (see [Admin UI](#admin-ui)).
-7. Submit a job, then answer it as kate on the admin UI's **Messenger** page:
+4. **Pair yourself.** In the admin UI, open **Messenger**, choose **New address**, type a name (say `me`),
+   and send `/start`. Pester replies that it has asked the admin, and the request appears under
+   **Recipients**. Approve it:
+
+   ```sh
+   pester pairing list
+   pester pairing approve 1 --as me --timezone America/New_York
+   ```
+
+   A welcome message arrives in the Messenger within a few seconds. (To skip approval, give someone an
+   invite instead: `pester invite create me`, then they send `/start <code>`.)
+
+5. **Create a client key** for the producer that will send jobs:
+
+   ```sh
+   pester client create study-app --recipient me    # prints the token once
+   ```
+
+6. **Go.** Submit a job with that token, and answer it in the Messenger:
 
    ```sh
    curl -H "Authorization: Bearer <token>" -H 'content-type: application/json' \
-     -d '{"recipient_id":"kate","prompt":"Did you water the plants?","response_options":["Yes","No"],"evaluation":{"prompt":"YES/NO"}}' \
+     -d '{"recipient_id":"me","prompt":"Did you water the plants?","response_options":["Yes","No"],"evaluation":{"evaluator":"rule","prompt":"match"}}' \
      http://<server>:8000/api/v1/jobs
    ```
+
+   With an LLM key set, use `"evaluation": {"prompt": "..."}` for LLM grading instead of `rule`. Pacing is
+   production-like by default (quiet hours, spacing, a daily cap); to see questions right away while
+   trying it out: `pester settings set scheduler.quiet_hours=null scheduler.min_interval_minutes=0
+   scheduler.jitter_minutes=0`.
+
+## Managing config
+
+Every change is saved as a new config version in the database and takes effect within a few seconds, with
+no restart. `pester --help` lists everything; the main commands:
+
+| Command | What it does |
+|---|---|
+| `pester client create/list/update/rotate/revoke` | Producer clients and their tokens (a token is shown once) |
+| `pester recipient add/list/update/link/unlink/remove` | People, their timezone and quiet hours, and how to reach them |
+| `pester pairing list/approve/reject`, `pester invite create/list` | Pairing requests and one-time invite codes |
+| `pester channel add/list/update/remove/secret` | Delivery channels and their secrets |
+| `pester personality list/set/remove/default` | Feedback personalities |
+| `pester settings show/set`, `pester llm key` | Pacing, LLM, and delivery settings; the LLM API key |
+| `pester history`, `pester export`, `pester import FILE` | Config versions, and YAML backup or config-as-code |
+
+**Secrets** (the LLM key, channel tokens) are stored apart from config and never shown again, exported, or
+logged. They're read from a prompt, or from stdin for scripts (`echo "$KEY" | pester llm key`). An
+environment variable, where one exists (`OPENAI_API_KEY`), takes precedence over the stored value.
+
+**Config as code.** `pester export -o config.yaml` writes the current config (without secrets);
+`pester import config.yaml` replaces it. Setting `PESTER_CONFIG` to a file seeds an **empty** database on
+first start; after that the file is ignored (Pester logs a warning if it differs), so edits in the UI or
+CLI are never silently overwritten.
 
 ## Admin UI
 
@@ -52,8 +95,8 @@ WARNING pester.admin.auth: Admin UI is not set up. Open /admin/setup and enter c
 
 Then choose the admin password. The UI has a dashboard (queue counts, health, recent activity), a job
 browser with each job's full timeline and evaluation audit, a **Messenger** page where you can be a
-recipient on the mock channel, personality preview, and pause/resume per recipient. Clients, recipients,
-channels, and pacing are shown read-only until config moves into the database (M6).
+recipient on a mock channel, personality preview, pending pairing requests, and pause/resume per recipient.
+Clients, recipients, channels, and settings are read-only there for now, with the CLI command for each.
 
 Forgot the password? `docker compose exec pester pester admin reset-password`, restart, and set a new one.
 
@@ -64,13 +107,16 @@ work survives restarts; a message that was mid-send during a crash is never rese
 
 ## Data and backups
 
-Everything lives in `./data`: `pester.sqlite` (with `-wal`/`-shm` files while running) and your
-`config.yaml`. To back up, either stop the stack and copy the directory, or take a consistent online copy:
+Everything lives in `./data/pester.sqlite` (with `-wal`/`-shm` files while running): config and its
+history, secrets, jobs, events, and the mock channel's conversations. Treat it as sensitive. To back up,
+either stop the stack and copy the directory, or take a consistent online copy:
 
 ```sh
 docker compose exec pester python -c \
   "import sqlite3; sqlite3.connect('/data/pester.sqlite').backup(sqlite3.connect('/data/backup.sqlite'))"
 ```
+
+`pester export` is a readable backup of config alone (without secrets).
 
 The container runs as uid 1000. If `./data` was created by root, `chown 1000:1000 data`.
 
@@ -78,21 +124,21 @@ The container runs as uid 1000. If `./data` was created by root, `chown 1000:100
 
 | Variable | Default (container) | Meaning |
 |---|---|---|
-| `PESTER_CONFIG` | unset | Path to the deployment YAML (clients, recipients, personalities, pacing) |
 | `PESTER_DATABASE_PATH` | `/data/pester.sqlite` | SQLite database |
-| `PESTER_DEV_MODE` | `false` | Enables the mock (`fake`) channel and unauthenticated `/dev` chat routes |
+| `PESTER_CONFIG` | unset | YAML file that seeds an empty database on first start |
 | `PESTER_LOG_FORMAT` | `text` | `text` or `json` |
 | `PESTER_LOG_LEVEL` | `INFO` | Python log level |
-| `OPENAI_API_KEY` | unset | Enables LLM evaluation and LLM personalities |
+| `OPENAI_API_KEY` | unset | LLM API key; overrides one stored with `pester llm key` |
+| `PESTER_DEV_MODE` | `false` | Development only: the echo evaluator, a mock channel if none is configured, and unauthenticated `/dev` chat routes |
 
 ## Health checks
 
 - `GET /health`: liveness; the image's `HEALTHCHECK` uses it.
-- `GET /ready`: 200 when the database is writable, workers are running, and at least one channel has
-  started; 503 with the failing checks otherwise.
+- `GET /ready`: 200 when the database is writable, workers are running, and every enabled channel has
+  started; 503 with the failing checks (including each channel's error) otherwise.
 
 ## Testing the image locally
 
 ```sh
-scripts/smoke-container.sh   # builds the image and runs one job through it (docker or podman)
+scripts/smoke-container.sh   # builds the image, configures it with the CLI, and runs one job through it
 ```

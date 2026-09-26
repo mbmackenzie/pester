@@ -77,7 +77,7 @@ A single async Python process:
 │                     │              └─► Personality    │
 │                     ▼                                 │
 │              DeliveryChannel  ◄── inbound ──┐         │
-│         (Fake | InMemory | Telegram)        │         │
+│      (channel adapters: mock, Telegram, …)  │         │
 │                                     Response router   │
 └─────────────────────┬───────────────────────▲─────────┘
                       ▼                       │
@@ -88,6 +88,8 @@ A single async Python process:
 - **Single writer.** One writer connection makes event cursors gap-free and commit-ordered.
 - **Workers** each expose `run_once()`. Production loops them, woken by timers and by `asyncio.Event` signals. Tests call `run_once()` directly.
 - **Injected `Clock`.** Nothing calls `datetime.now()` directly. This is what makes scheduling testable.
+- **Config is data.** Deployment config (clients, recipients, channels, personalities, pacing) lives in the
+  database as versioned snapshots and changes at runtime; workers read one snapshot per step (§13.1).
 
 ### 3.1 Components
 
@@ -99,7 +101,9 @@ A single async Python process:
 | Delivery worker | Outbox-style sending with retry and backoff |
 | Response router | Maps inbound messages and commands to jobs |
 | Evaluation worker | Runs the evaluator, validates output, runs the personality, queues feedback |
-| DeliveryChannel | Adapter to a messaging service |
+| DeliveryChannel | A running channel instance, built by a channel adapter (§9.5) |
+| Channel manager | Starts, restarts, and stops channel instances as their config changes |
+| Admin service | Every config change (admin UI, CLI, pairing): validate, then save a new version |
 | Evaluator | Turns (job, response) into a structured result |
 | PersonalityRenderer | Turns an evaluation result into a message for the person |
 
@@ -227,7 +231,8 @@ The job's `metadata` is echoed on every event so consumers can route events with
 
 ## 7. API
 
-All `/api/v1` routes require `Authorization: Bearer <token>`. Tokens are stored hashed in config.
+All `/api/v1` routes require `Authorization: Bearer <token>`. Tokens are stored hashed in config; a token is
+shown once, when the client is created (`pester client create`) or rotated.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -254,6 +259,8 @@ All `/api/v1` routes require `Authorization: Bearer <token>`. Tokens are stored 
 - There is no ack endpoint. Consumers persist their last processed cursor.
 
 ### 7.3 Authorization
+
+Clients are part of the deployment config (§13.1), shown here in its YAML form:
 
 ```yaml
 clients:
@@ -330,13 +337,16 @@ class InboundMessage(BaseModel):
     raw: dict[str, Any] | None
 ```
 
+Channels also implement `address_of(recipient_config) -> address` and its inverse
+`recipient_config_for(address)`, used by pairing (§9.6).
+
 Implementations:
 
 | Channel | Use |
 |---|---|
 | `InMemoryChannel` | Tests. One conversation per address with sequential message ids, `inject(...)` for inbound messages, and send-failure injection. |
-| `fake` | Local development: an `InMemoryChannel` named `fake`, enabled by `PESTER_DEV_MODE`, exposed through the unauthenticated dev routes `GET`/`POST /dev/chat/{address}` and the `pester chat <address>` CLI. Models reply threading like Telegram. |
-| `TelegramChannel` | Production. Long polling via `python-telegram-bot`, no public webhook. Inline keyboards for `response_options`. |
+| `mock` adapter | A messenger built into Pester, used from the admin UI's Messenger page. An `InMemoryChannel` whose conversations are stored in SQLite, so they survive restarts and message ids are never reused. Models reply threading like Telegram. In dev mode (`PESTER_DEV_MODE`), a mock channel named `fake` is added when none is configured, and the unauthenticated dev routes `GET`/`POST /dev/chat/{address}?channel=` and `pester chat <address>` drive it. |
+| Telegram adapter (M8) | Long polling via `python-telegram-bot`, no public webhook. Inline keyboards for `response_options`. |
 
 ### 9.1 Sending (outbox pattern)
 
@@ -355,7 +365,7 @@ Transient errors are retried with bounded exponential backoff. **After a crash, 
 
 **Debounce:** people often answer in several messages. The first answer opens a window of `debounce_seconds`. Each further message routed to the same job is joined on (newline-separated) and slides the window. The job stays `AWAITING` while the answer is collected, and moves to `ANSWERED` (emitting `INTERACTION_ANSWERED` with the full text) when the window closes. A button press closes the window immediately. Feedback threads onto the latest message. `debounce_seconds: 0` records each answer at once.
 
-A message that arrives after the job is answered, evaluated, or closed emits `INTERACTION_LATE_RESPONSE` and is not evaluated. Messages from unknown senders are dropped (allowlist). Duplicate inbound external IDs are ignored, for commands too.
+A message that arrives after the job is answered, evaluated, or closed emits `INTERACTION_LATE_RESPONSE` and is not evaluated. Recipients are the sender allowlist: a message from an unknown address is never routed to a job; it's a pairing request (§9.6) or dropped. Duplicate inbound external IDs are ignored, for commands too.
 
 ### 9.3 Recipient commands
 
@@ -371,6 +381,9 @@ A message that arrives after the job is answered, evaluated, or closed emits `IN
 
 ### 9.4 Recipients
 
+Recipients are part of the deployment config (§13.1). `channels` is keyed by channel instance name; each
+value is whatever that channel's `address_of` needs:
+
 ```yaml
 recipients:
   kate:
@@ -378,8 +391,44 @@ recipients:
     quiet_hours: {start: "22:00", end: "09:00"}   # optional override
     channels:
       telegram: {user_id: 123456789, chat_id: 123456789}
-      fake: {address: kate}
+      mock: {address: kate}
 ```
+
+### 9.5 Channel adapters
+
+A channel instance is configured as `{type, enabled, description, accept_pairing, ...options}`:
+
+```yaml
+channels:
+  mock: {type: mock}
+  telegram: {type: telegram}        # its bot token is a secret, set apart from config
+```
+
+`type` is a built-in adapter (`mock`) or an import path `package.module:Adapter`. An adapter declares a
+pydantic `options_model` and builds the channel: `create(name, options, services) -> DeliveryChannel`.
+`SecretStr` fields of the options model are **secrets**: stored apart from config as
+`channel.<name>.<field>`, never returned or exported, and overridable by an environment variable the field
+names (`Field(json_schema_extra={"env": "TELEGRAM_BOT_TOKEN"})`). The admin UI builds channel forms from the
+options model's JSON schema.
+
+The channel manager keeps running instances in step with config. When config changes, it restarts only
+channels whose effective config (options and secrets) changed, stopping the old instance before starting
+the new one (two pollers on one bot account would fight over updates). A channel that can't be built or
+started is reported, per channel, by `/ready` and the admin UI; the rest keep running.
+
+### 9.6 Pairing
+
+On a channel with `accept_pairing` (the default), a message from an unknown address becomes a **pending
+pairing request**, storing the address's `recipient_config_for` and the first message. The person is told,
+once, that the admin has been asked; later messages get no reply. The admin approves a request as a new
+recipient (timezone, quiet hours, which clients may message them) or as an existing one (linking another
+address), or rejects it (further messages are ignored). At most 50 requests may be pending.
+
+**Invite codes** skip approval: `pester invite create kate` issues a one-time code (stored hashed, valid for
+7 days by default), and sending `/start <code>` pairs that address as `kate`, creating the recipient if
+needed.
+
+After any approval, the server sends a welcome message once the config with the new recipient is in effect.
 
 ---
 
@@ -462,7 +511,7 @@ personalities:
 
 A SQLite file in WAL mode, accessed through `aiosqlite` with numbered `.sql` migrations and a `schema_version` table.
 
-Tables: `batches`, `jobs`, `deliveries`, `responses`, `evaluations`, `events`, `recipient_state`, `schema_version`. Each table is added by a migration in the milestone that first uses it (M1: `batches`, `jobs`, `events`). Clients, recipients, and personalities live in config, not the database.
+Tables: `batches`, `jobs`, `deliveries`, `responses`, `evaluations`, `events`, `inbound_messages`, `recipient_state`, `config_versions`, `secrets`, `pairings`, `invites`, `mock_messages`, `admin_settings`, `admin_sessions`, `schema_version`. Each table is added by a migration in the milestone that first uses it (M1: `batches`, `jobs`, `events`; M6: config, secrets, pairing, and the mock channel).
 
 Unique constraints:
 
@@ -485,11 +534,37 @@ Unique constraints:
 
 ## 13. Operations
 
-- **Config:** YAML file (`PESTER_CONFIG`) plus environment variables via `pydantic-settings`.
-- **Secrets:** `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, and producer token hashes. Secrets never go in job payloads or logs.
+- **Config:** in the database (§13.1), managed with the admin UI or the `pester` CLI. Process settings come
+  from environment variables (`PESTER_*`) via `pydantic-settings`.
+- **Secrets:** the LLM API key and channel secrets are stored apart from config and never shown after
+  saving, exported, or logged; environment variables (`OPENAI_API_KEY`, adapter-declared ones) take
+  precedence. Producer tokens are stored only as hashes. Secrets never go in job payloads.
 - **Logging:** structured JSON logs carrying `interaction_id`, `batch_id`, `recipient_id`, `client_id`, and `event`.
-- **Deployment:** Docker Compose with one `pester` service and a volume at `/data/pester.sqlite`.
-- **CLI:** `pester serve`, `pester chat <address>` (fake channel, dev mode), `pester hash-token`.
+- **Deployment:** Docker Compose with one `pester` service and a volume at `/data` (the database).
+- **CLI:** `pester serve`; config management (`client`, `recipient`, `channel`, `pairing`, `invite`,
+  `personality`, `settings`, `llm key`, `import`, `export`, `history`); `pester chat <address>` (mock
+  channel, dev mode); `pester hash-token`; `pester admin reset-password`.
+
+### 13.1 Config
+
+The deployment config (clients, recipients, channels, personalities, scheduler, LLM, and delivery settings)
+is one validated document. Every change saves the whole document as a new row in `config_versions`, which
+gives history (`pester history`) and export for free. Changes go through the admin service, which edits a
+copy of the latest version, validates it (by building everything from it, e.g. personalities), and saves
+it only if no one else saved in between (otherwise it redoes the edit on top).
+
+The server holds a **snapshot**: a version plus what's built from it (LLM client, evaluators,
+personalities). Workers read the current snapshot once per step. A config step polls the latest version
+every few seconds and swaps the snapshot, so changes made in another process (the CLI) apply without a
+restart; the channel manager then restarts only what changed. A version that can't be built is logged once
+and skipped, and the current one stays in effect.
+
+Jobs outlive config: a job whose personality was removed uses the default; a job whose recipient or channel
+was removed stays queued until it's routable or expires.
+
+`PESTER_CONFIG` names a YAML file that seeds an **empty** database; afterwards it's ignored (with a warning
+if it differs), so UI and CLI edits are never overwritten. `pester import` replaces the config from YAML
+(moving any secret channel options out to secrets), and `pester export` writes it.
 
 ---
 
@@ -519,9 +594,11 @@ Each milestone is tracked as a GitHub issue.
 | M3 | LLM evaluation and personality | Real grading and personality feedback in the fake chat; preview endpoint |
 | M4 | Scheduling rules and recipient commands | Quiet hours, caps, jitter, timeouts, skip/snooze/pause |
 | M5 | Hardening and deployment | Survives kill -9 mid-flow; Docker Compose |
-| M6 | Telegram adapter | Real Telegram passes the channel contract suite |
+| M6 | Config in the database, pluggable channels | With no YAML: create a client, add the mock channel, pair a recipient, and run the full loop via the CLI, with changes applied live |
+| M7 | Admin UI | From a fresh container, everything above in a browser |
+| M8 | Telegram adapter | Real Telegram passes the channel contract suite |
 
-**Post-MVP:** reminders, push webhooks to producers, admin/debug page, one-turn clarification (`NEEDS_CLARIFICATION`), voice-note transcription, per-recipient delivery windows.
+**Post-MVP:** reminders, push webhooks to producers, one-turn clarification (`NEEDS_CLARIFICATION`), voice-note transcription, per-recipient delivery windows.
 
 ---
 
@@ -529,15 +606,21 @@ Each milestone is tracked as a GitHub issue.
 
 ```text
 src/pester/
-├── api/            jobs.py, batches.py, events.py, preview.py, dev.py, auth.py
-├── core/           models.py, states.py, events.py, clock.py, ids.py
+├── admin/          the admin UI: auth.py, views.py, queries.py, templates/, static/
+├── api/            jobs.py, batches.py, events.py, preview.py, personalities.py, health.py, dev.py, deps.py
+├── core/           models.py, states.py, messages.py, clock.py, ids.py, tokens.py
 ├── storage/        db.py, repository.py, migrations/*.sql
 ├── scheduler/      policy.py (pure), worker.py
-├── delivery/       base.py, memory.py, fake.py, telegram.py, worker.py, router.py
-├── evaluation/     base.py, llm.py, rule.py, scripted.py, worker.py
+├── delivery/       base.py, memory.py, mock.py, adapters.py, manager.py, pairing.py, worker.py, router.py
+├── evaluation/     base.py, llm.py, rule.py, echo.py, scripted.py, worker.py
 ├── personality/    base.py, neutral.py, template.py, llm.py, registry.py
-├── cli.py
-├── config.py
+├── config.py       config models (the document stored in config_versions) and process settings
+├── configstore.py  versioned config and secrets
+├── live.py         snapshots of the config in effect
+├── service.py      the admin service: every config change
+├── pairing.py      pairing requests and invite codes
+├── runtime.py      workers, channels, and the config step
+├── cli.py, cli_admin.py
 └── main.py
 tests/
 ├── unit/  storage/  api/  e2e/  contract/  live/
