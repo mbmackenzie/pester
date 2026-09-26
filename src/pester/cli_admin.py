@@ -8,6 +8,7 @@ changes within a few seconds.
 import argparse
 import asyncio
 import getpass
+import logging
 import sys
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -31,6 +32,11 @@ DEFAULT_PERMISSIONS = [p.value for p in Permission]
 
 @asynccontextmanager
 async def _service() -> AsyncGenerator[tuple[AdminService, ConfigStore]]:
+    # Validation builds everything from the config, which warns about things the server will report
+    # (e.g. no LLM key). The CLI only needs to know whether a change is valid.
+    logger = logging.getLogger("pester")
+    previous = logger.level
+    logger.setLevel(logging.ERROR)
     settings = Settings()
     db = await Database.open(settings.database_path)
     clock = SystemClock()
@@ -44,6 +50,7 @@ async def _service() -> AsyncGenerator[tuple[AdminService, ConfigStore]]:
         yield AdminService(store, PairingStore(db, clock), validate), store
     finally:
         await db.close()
+        logger.setLevel(previous)
 
 
 def _run(action: Callable[[AdminService, ConfigStore], Awaitable[None]]) -> None:

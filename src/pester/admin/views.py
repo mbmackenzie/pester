@@ -244,7 +244,7 @@ async def dashboard(request: Request, admin: AdminDep) -> Response:
         ("Channel", bool(runtime.started_channels), "/admin/channels"),
         ("Recipient", bool(state.config.recipients), "/admin/recipients"),
         ("Client key", bool(state.config.clients), "/admin/clients"),
-        ("LLM key (optional)", state.settings.openai_api_key is not None, "/admin/settings"),
+        ("LLM key (optional)", state.live.current.llm_key_source is not None, "/admin/settings"),
     ]
     return render(request, "dashboard.html", admin, steps=steps, **await _overview(request))
 
@@ -411,7 +411,8 @@ async def recipients(request: Request, admin: AdminDep) -> Response:
         (recipient_id, recipient, await repo.recipient_status(recipient_id))
         for recipient_id, recipient in sorted(state.config.recipients.items())
     ]
-    return render(request, "recipients.html", admin, recipients=rows)
+    pending = await request.app.state.service.pending_pairings()
+    return render(request, "recipients.html", admin, recipients=rows, pending=pending)
 
 
 @router.post("/recipients/{recipient_id}/{action}")
@@ -520,7 +521,7 @@ def _settings_context(request: Request) -> dict[str, Any]:
         "scheduler": state.config.scheduler,
         "llm": state.config.llm,
         "delivery": state.config.delivery,
-        "llm_key_set": state.settings.openai_api_key is not None,
+        "llm_key_source": state.live.current.llm_key_source,
         "llm_live": isinstance(state.evaluators.get("llm"), LLMEvaluator),
     }
 

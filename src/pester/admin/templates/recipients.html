@@ -3,7 +3,23 @@
 {% block title %}Recipients{% endblock %}
 {% block content %}
 <h1>Recipients</h1>
-{{ readonly_note() }}
+{{ readonly_note("pester recipient update kate --timezone Europe/London") }}
+{% if pending %}
+<section class="card flush">
+  <h3 class="pad">Pending pairing requests</h3>
+  <table>
+    <thead><tr><th>Id</th><th>Channel</th><th>Address</th><th>Said</th><th>When</th></tr></thead>
+    {% for p in pending %}
+    <tr>
+      <td>{{ p.pk }}</td><td>{{ p.channel }}</td><td>{{ p.address }}</td>
+      <td>{{ (p.first_text or "") | truncate_text(50) }}</td><td class="muted nowrap">{{ p.created_at | dt }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="note pad">Approve with <code>pester pairing approve ID --as NAME --timezone Europe/London</code>, or
+  reject with <code>pester pairing reject ID</code>.</p>
+</section>
+{% endif %}
 <section class="card flush">
 {% if recipients %}
 <table>
@@ -31,7 +47,9 @@
   {% endfor %}
 </table>
 {% else %}
-<p class="muted pad">No recipients yet. Add one under <code>recipients:</code> in <code>config.yaml</code>.</p>
+<p class="muted pad">No recipients yet. Pair someone: they send <code>/start</code> to Pester on a channel (try a
+new address on the <a href="/admin/chat">Messenger</a>), then you approve the request. Or add one directly with
+<code>pester recipient add NAME</code>.</p>
 {% endif %}
 </section>
 <p class="note">Pausing holds new prompts for that person, just like their own <code>/pause</code> command. Jobs
