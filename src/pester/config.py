@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     database_path: Path = Path("pester.sqlite")
     host: str = "127.0.0.1"
     port: int = 8000
-    dev_mode: bool = False
+    dev_mode: bool = False  # enables the fake channel and the unauthenticated /dev routes
+    run_workers: bool = True  # tests disable this and drive workers with Runtime.run_until_idle()
 
 
 class _Strict(BaseModel):

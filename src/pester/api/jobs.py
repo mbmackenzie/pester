@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel
 
-from pester.api.deps import ConfigDep, Principal, ReadPrincipal, RepoDep, SubmitPrincipal
+from pester.api.deps import ConfigDep, Principal, ReadPrincipal, RepoDep, RuntimeDep, SubmitPrincipal
 from pester.config import PesterConfig
 from pester.core.models import InteractionJob, JobRecord, UtcDatetime
 from pester.core.states import JobStatus
@@ -50,10 +50,16 @@ def check_submission(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def submit_job(
-    job: InteractionJob, principal: SubmitPrincipal, config: ConfigDep, repo: RepoDep, response: Response
+    job: InteractionJob,
+    principal: SubmitPrincipal,
+    config: ConfigDep,
+    repo: RepoDep,
+    runtime: RuntimeDep,
+    response: Response,
 ) -> JobAccepted:
     check_submission(config, principal, job)
     record, created = await repo.submit_job(principal.client_id, job)
+    runtime.nudge()
     if not created:
         response.status_code = status.HTTP_200_OK
     return JobAccepted.of(record)
@@ -73,5 +79,9 @@ async def get_job(job_id: str, principal: ReadPrincipal, repo: RepoDep) -> JobVi
 
 
 @router.post("/{job_id}/cancel")
-async def cancel_job(job_id: str, principal: SubmitPrincipal, repo: RepoDep) -> JobAccepted:
-    return JobAccepted.of(await repo.cancel(principal.client_id, job_id))
+async def cancel_job(
+    job_id: str, principal: SubmitPrincipal, repo: RepoDep, runtime: RuntimeDep
+) -> JobAccepted:
+    record = await repo.cancel(principal.client_id, job_id)
+    runtime.nudge()
+    return JobAccepted.of(record)

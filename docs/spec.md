@@ -170,7 +170,8 @@ Optional producer / generator / source / evaluation version strings. Stored, nev
 
 ```text
 QUEUED ──► SENDING ──► AWAITING ──► ANSWERED ──► EVALUATED ──► COMPLETED
-  │           │           │            │
+  │           │           │            │             │
+  │           │           │            │             └──► FAILED  (feedback undeliverable)
   │           │           │            └──► FAILED  (evaluation exhausted retries)
   │           │           ├──► UNANSWERED   (answer_within elapsed)
   │           │           ├──► SKIPPED      (/skip)
@@ -277,7 +278,9 @@ Constraints (the most restrictive one wins):
 - Recipient: `timezone`, quiet hours (overriding global), paused flag.
 - Global: `min_interval_minutes`, `max_messages_per_day` (in the recipient's local day), `max_outstanding` (default 1), randomized jitter.
 
-Among eligible jobs, the highest priority goes first, then the oldest. Jitter is seeded and injectable so tests are deterministic.
+A job occupies an outstanding slot from `SENDING` until its feedback is delivered (`SENDING`, `AWAITING`, `ANSWERED`, `EVALUATED`), so a person never gets a new question before feedback on the last one. Jobs whose recipient has no enabled channel stay `QUEUED`.
+
+Among eligible jobs, the highest priority goes first, then the oldest (ties broken by submission order). Jitter is seeded and injectable so tests are deterministic.
 
 ```yaml
 scheduler:
@@ -316,8 +319,8 @@ Implementations:
 
 | Channel | Use |
 |---|---|
-| `InMemoryChannel` | Tests. Has an outbox list and `inject(...)` for inbound messages. |
-| `FakeChannel` | Local development. In-memory, plus dev-only routes `GET /dev/outbox/{recipient}` and `POST /dev/inbox/{recipient}`, plus the `pester chat <recipient>` CLI. Models reply threading like Telegram. |
+| `InMemoryChannel` | Tests. One conversation per address with sequential message ids, `inject(...)` for inbound messages, and send-failure injection. |
+| `fake` | Local development: an `InMemoryChannel` named `fake`, enabled by `PESTER_DEV_MODE`, exposed through the unauthenticated dev routes `GET`/`POST /dev/chat/{address}` and the `pester chat <address>` CLI. Models reply threading like Telegram. |
 | `TelegramChannel` | Production. Long polling via `python-telegram-bot`, no public webhook. Inline keyboards for `response_options`. |
 
 ### 9.1 Sending (outbox pattern)
@@ -425,7 +428,7 @@ Unique constraints:
 - `jobs(client_id, id)`
 - `batches(client_id, batch_id)`
 - `events(event_id)`
-- `responses(channel, external_id)`
+- `inbound_messages(channel, address, external_id)`, and `deliveries(channel, address, external_id)`. External message ids are only unique per conversation (Telegram message ids are per chat), so they are always keyed with the address.
 
 ### 12.1 Recovery on startup
 
@@ -445,7 +448,7 @@ Unique constraints:
 - **Secrets:** `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, and producer token hashes. Secrets never go in job payloads or logs.
 - **Logging:** structured JSON logs carrying `interaction_id`, `batch_id`, `recipient_id`, `client_id`, and `event`.
 - **Deployment:** Docker Compose with one `pester` service and a volume at `/data/pester.sqlite`.
-- **CLI:** `pester serve`, `pester chat <recipient>` (fake channel), `pester hash-token`.
+- **CLI:** `pester serve`, `pester chat <address>` (fake channel, dev mode), `pester hash-token`.
 
 ---
 

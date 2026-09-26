@@ -3,6 +3,7 @@
 import hashlib
 import json
 from datetime import UTC
+from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -88,6 +89,7 @@ class BatchSubmission(_Model):
 class JobRecord(_Model):
     """A stored job: the immutable submission plus its current lifecycle state."""
 
+    pk: int
     client_id: str
     id: str
     batch_id: str | None
@@ -95,6 +97,30 @@ class JobRecord(_Model):
     created_at: UtcDatetime
     updated_at: UtcDatetime
     spec: InteractionJob
+
+
+class DeliveryKind(StrEnum):
+    PROMPT = "PROMPT"
+    FEEDBACK = "FEEDBACK"
+
+
+class DeliveryStatus(StrEnum):
+    PENDING = "PENDING"
+    SENDING = "SENDING"
+    SENT = "SENT"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class HumanResponse(_Model):
+    interaction_id: str
+    text: str
+    selected_option: str | None = None
+    channel: str
+    address: str
+    external_id: str
+    received_at: UtcDatetime
+    raw: dict[str, Any] | None = None
 
 
 class Event(_Model):

@@ -46,7 +46,7 @@ _TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
     S.SENDING: frozenset({S.AWAITING, S.QUEUED, S.FAILED}),  # SENDING -> QUEUED: retry after transient error
     S.AWAITING: frozenset({S.ANSWERED, S.UNANSWERED, S.SKIPPED, S.QUEUED}),  # AWAITING -> QUEUED: snooze
     S.ANSWERED: frozenset({S.EVALUATED, S.FAILED}),
-    S.EVALUATED: frozenset({S.COMPLETED}),
+    S.EVALUATED: frozenset({S.COMPLETED, S.FAILED}),  # EVALUATED -> FAILED: feedback undeliverable
 }
 
 TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
