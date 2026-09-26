@@ -186,6 +186,18 @@ def test_jittered_send_time_is_stable_across_passes() -> None:
         assert earliest_send(NOW + step * M, job, state, policy) == max(first, NOW + step * M)
 
 
+def test_quiet_end_jitter_is_stable_after_the_nominal_end() -> None:
+    # Planning from inside the window and planning just after its nominal end must agree.
+    policy = Policy(jitter=seeded_jitter("s", 30))
+    state = RecipientState(tz=NY, quiet=NIGHT)
+    job = Candidate(key=1, recipient_id="kate", priority=0.5, created_at=ny(8, 0, day=26))
+    planned = earliest_send(ny(8, 0, day=26), job, state, policy)
+    assert planned > ny(8, 30, day=26)  # this seed/day gives a non-zero offset
+    for minute in range(30, 60, 5):
+        now = ny(8, minute, day=26)
+        assert earliest_send(now, job, state, policy) == max(planned, now)
+
+
 def test_quiet_end_is_jittered() -> None:
     policy = Policy(jitter=seeded_jitter("s", 30))
     t = earliest_send(ny(23), cand(1), RecipientState(tz=NY, quiet=NIGHT), policy)

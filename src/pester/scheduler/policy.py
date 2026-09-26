@@ -135,14 +135,35 @@ def earliest_send(now: datetime, c: Candidate, state: RecipientState, policy: Po
 
     for _ in range(14):  # quiet hours and daily caps can push each other forward; this converges quickly
         local = t.astimezone(state.tz)
-        if state.quiet is not None and state.quiet.contains(local.time()):
-            end = _next_local(t, state.tz, state.quiet.end)
-            t = end + policy.jitter(f"quiet:{c.recipient_id}:{end.astimezone(state.tz).date().isoformat()}")
+        if state.quiet is not None and (released := _quiet_release(t, c.recipient_id, state, policy)) > t:
+            t = released
             continue
         if _sent_on(state, local.date()) >= policy.max_per_day:
             t = _next_local(t, state.tz, time(0))
             continue
         return t
+    return t
+
+
+def _quiet_release(t: datetime, recipient_id: str, state: RecipientState, policy: Policy) -> datetime:
+    """When quiet hours affecting ``t`` end, including that night's jitter; ``t`` itself if unaffected.
+
+    Each night's window effectively runs until ``end + jitter(that day)``. That must hold whether or not ``t``
+    is inside the nominal window, or re-planning just after ``end`` would skip the jitter.
+    """
+    assert state.quiet is not None
+
+    def jittered(end: datetime) -> datetime:
+        day = end.astimezone(state.tz).date().isoformat()
+        return end + policy.jitter(f"quiet:{recipient_id}:{day}")
+
+    if state.quiet.contains(t.astimezone(state.tz).time()):
+        return jittered(_next_local(t, state.tz, state.quiet.end))
+    today = t.astimezone(state.tz).date()
+    for day in (today - timedelta(days=1), today):
+        end = datetime.combine(day, state.quiet.end, tzinfo=state.tz)
+        if end <= t < (release := jittered(end)):
+            return release
     return t
 
 

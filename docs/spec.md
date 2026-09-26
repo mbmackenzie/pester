@@ -267,31 +267,45 @@ clients:
 
 ## 8. Scheduling
 
-The policy is a **pure function**:
+The policy is a **pure function** (`scheduler/policy.py`): no I/O and no clock.
 
 ```python
-decide(now, candidates, recipient_state, policy) -> list[Decision]   # SEND job X / WAIT until T
+decide(now, candidates, recipients: Mapping[str, RecipientState], policy: Policy) -> Plan
+# Plan: send (job keys), expire (job keys), wake_at (earliest future time the plan could change)
 ```
 
-Constraints (the most restrictive one wins):
+For each queued job, `earliest_send` computes the first moment it may go out. Every constraint applies, and the most restrictive wins:
 
-- Job: `not_before`, `expires_at`, `priority`.
-- Recipient: `timezone`, quiet hours (overriding global), paused flag.
-- Global: `min_interval_minutes`, `max_messages_per_day` (in the recipient's local day), `max_outstanding` (default 1), randomized jitter.
+- **Job:** `max(created_at, not_before, snoozed_until)` plus job jitter; `expires_at` (a job past it expires even while blocked).
+- **Spacing:** at least `min_interval_minutes` after the recipient's last prompt, plus jitter.
+- **Quiet hours** (the recipient's own window overrides the global one, evaluated in the recipient's `timezone`; windows may span midnight): pushed to the window's end plus that night's jitter.
+- **Daily cap:** at most `max_messages_per_day` prompts in the recipient's **local** day; otherwise pushed to local midnight (and then usually to the end of quiet hours).
+- **Paused** recipients get nothing. Their jobs can still expire.
+
+Each recipient's eligible jobs are taken in priority order (highest priority, then oldest, then submission order) while outstanding slots remain. After each pick the recipient's state is updated as if it had been sent, so spacing and caps hold even when several jobs are due in the same pass.
+
+**Jitter** is a deterministic function of `jitter_seed` and a fixed anchor: the job's own start, the last prompt (for spacing), or the date (for quiet hours). A job's send time is therefore stable across passes and restarts instead of receding. The quiet-hours release time is `end + jitter(that night)`, whether it's evaluated from inside the window or just after its nominal end.
+
+Only prompts count towards spacing and caps. Feedback and notices are replies to something the person did, and are sent immediately.
 
 A job occupies an outstanding slot from `SENDING` until its feedback is delivered (`SENDING`, `AWAITING`, `ANSWERED`, `EVALUATED`), so a person never gets a new question before feedback on the last one. Jobs whose recipient has no enabled channel stay `QUEUED`.
 
-Among eligible jobs, the highest priority goes first, then the oldest (ties broken by submission order). Jitter is seeded and injectable so tests are deterministic.
+**Answer timeouts:** an `AWAITING` job becomes `UNANSWERED` once `answer_within_seconds` (per job, else `default_answer_within_seconds`) has passed since its prompt was sent, unless an answer is being collected (debounce). This frees the slot, and a later reply is recorded as `INTERACTION_LATE_RESPONSE`.
 
 ```yaml
 scheduler:
-  quiet_hours: {start: "21:00", end: "08:30"}
+  quiet_hours: {start: "21:00", end: "08:30"}   # null to disable
   min_interval_minutes: 120
   max_messages_per_day: 4
   max_outstanding: 1
   jitter_minutes: 30
+  jitter_seed: pester
   default_answer_within_seconds: 86400
+  debounce_seconds: 20
+  max_snooze_hours: 168
 ```
+
+Verified by table tests (quiet hours spanning midnight, both DST transitions, local-day caps), Hypothesis properties over random schedules and timezones, and a seeded week-long simulation that checks every constraint against the messages the recipient actually received.
 
 ---
 
@@ -339,18 +353,21 @@ Transient errors are retried with bounded exponential backoff. **After a crash, 
 3. **Fallback:** the recipient's single outstanding `AWAITING` job.
 4. **Nothing matches:** reply "nothing pending", log it, and emit no event.
 
-Several messages within `debounce_seconds` (default 20) are joined into one response. A message that arrives after the job is evaluated or closed emits `INTERACTION_LATE_RESPONSE`. Messages from unknown senders are dropped (allowlist). Duplicate inbound external IDs are ignored.
+**Debounce:** people often answer in several messages. The first answer opens a window of `debounce_seconds`. Each further message routed to the same job is joined on (newline-separated) and slides the window. The job stays `AWAITING` while the answer is collected, and moves to `ANSWERED` (emitting `INTERACTION_ANSWERED` with the full text) when the window closes. A button press closes the window immediately. Feedback threads onto the latest message. `debounce_seconds: 0` records each answer at once.
+
+A message that arrives after the job is answered, evaluated, or closed emits `INTERACTION_LATE_RESPONSE` and is not evaluated. Messages from unknown senders are dropped (allowlist). Duplicate inbound external IDs are ignored, for commands too.
 
 ### 9.3 Recipient commands
 
 | Command | Effect |
 |---|---|
-| `/skip` | Outstanding job → `SKIPPED` |
-| `/snooze <duration>` | Outstanding job → `QUEUED` with a new `not_before` |
-| `/pause`, `/resume` | Stop or resume all delivery to this recipient |
-| `/status` | Show what's pending |
+| `/skip` | Open question → `SKIPPED` (discarding any partial answer) |
+| `/snooze [duration]` | Open question → `QUEUED` until now + duration (`30m`, `2h`, `1h30m`, `1d`; default 1h, at most `max_snooze_hours`), emitting `INTERACTION_SNOOZED`. Stored as the scheduler-owned `snoozed_until`; the job spec is unchanged. It's asked again later, subject to all pacing rules |
+| `/pause`, `/resume` | Stop or resume all prompts to this recipient (open questions stay open) |
+| `/status` | Open questions (with when they were asked, in local time), queued count, paused state |
+| anything else | Lists the commands |
 
-Channels parse these into the channel-agnostic `Command` type.
+`/skip` and `/snooze` act on the replied-to question, or the single open question. With several open and no reply-to, the person is asked to reply to the one they mean. Channels parse commands into the channel-agnostic `Command` type.
 
 ### 9.4 Recipients
 
