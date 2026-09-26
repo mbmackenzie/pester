@@ -1,0 +1,41 @@
+{
+  "batch_id": "batch_2026_09_25",
+  "jobs": [
+    {
+      "id": "study-001",
+      "recipient_id": "kate",
+      "prompt": "In one sentence: why does SQLite WAL mode allow readers during a write?",
+      "evaluation": {
+        "prompt": "Grade the answer against the rubric. Return a score from 0 to 1 and a one-sentence explanation.",
+        "context": {
+          "rubric": [
+            "Mentions that writers append to a separate WAL file",
+            "Mentions that readers keep reading the main database or a snapshot"
+          ]
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {"score": {"type": "number"}, "explanation": {"type": "string"}},
+          "required": ["score", "explanation"]
+        },
+        "prompt_version": "v1"
+      },
+      "personality_id": "weather-goblin",
+      "delivery": {"not_before": "2026-09-26T09:00:00-04:00", "priority": 0.7},
+      "metadata": {"concept_id": "sqlite-wal", "objective_id": "obj-12"},
+      "provenance": {"producer": "study-system", "producer_version": "0.3.1"}
+    },
+    {
+      "id": "plants-001",
+      "recipient_id": "kate",
+      "prompt": "Did you water the plants?",
+      "response_options": ["Yes", "No"],
+      "evaluation": {
+        "evaluator": "rule",
+        "prompt": "Classify the response as YES / NO / UNCLEAR."
+      },
+      "delivery": {"expires_at": "2026-09-26T20:00:00-04:00"},
+      "metadata": {"plant": "fern"}
+    }
+  ]
+}
