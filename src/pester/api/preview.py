@@ -12,6 +12,7 @@ from pester.core.models import HumanResponse, InteractionJob
 from pester.evaluation.base import EvaluationFailedError
 from pester.evaluation.pipeline import assess
 from pester.personality.base import PromptContext
+from pester.state import AppState
 
 router = APIRouter(tags=["jobs"])
 
@@ -56,6 +57,11 @@ class PreviewResult(BaseModel):
 async def preview_job(body: PreviewRequest, principal: PreviewPrincipal, state: StateDep) -> PreviewResult:
     job = body.job.model_copy(update={"id": body.job.id or "preview"})
     check_submission(state, principal, job)
+    return await run_preview(state, job, body.response)
+
+
+async def run_preview(state: AppState, job: InteractionJob, sample: SampleResponse) -> PreviewResult:
+    """Evaluate ``sample`` as a reply to ``job`` and voice the feedback, storing and sending nothing."""
     personality = state.personalities.resolve(job.personality_id)
     prompt = job.prompt
     if job.delivery.prompt_rendering == "personality":
@@ -63,8 +69,8 @@ async def preview_job(body: PreviewRequest, principal: PreviewPrincipal, state: 
 
     response = HumanResponse(
         interaction_id=job.id or "preview",
-        text=body.response.text or body.response.selected_option or "",
-        selected_option=body.response.selected_option,
+        text=sample.text or sample.selected_option or "",
+        selected_option=sample.selected_option,
         channel="preview",
         address="preview",
         external_id=new_id(),

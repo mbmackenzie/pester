@@ -1,0 +1,12 @@
+{% macro status(value) -%}
+  <span class="status status-{{ value | lower }}">{{ value }}</span>
+{%- endmacro %}
+
+{% macro readonly_note() -%}
+  <p class="note">Configured in <code>config.yaml</code>. Editing here arrives when config moves into the
+  database (M6).</p>
+{%- endmacro %}
+
+{% macro csrf() -%}
+  <input type="hidden" name="csrf" value="{{ admin.csrf_token }}">
+{%- endmacro %}

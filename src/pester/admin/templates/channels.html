@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Channels{% endblock %}
+{% block content %}
+<h1>Channels</h1>
+<p>Channels carry prompts to people and bring their replies back.</p>
+<section class="card flush">
+{% if channels %}
+<table>
+  <thead><tr><th>Channel</th><th>Status</th><th>Recipients</th></tr></thead>
+  {% for name, started, members in channels %}
+  <tr>
+    <td><strong>{{ "mock" if name == "fake" else name }}</strong></td>
+    <td><span class="dot {{ 'ok' if started else 'bad' }}"></span> {{ "running" if started else "failed to start" }}</td>
+    <td>{% for r, cfg in members %}<span class="chip">{{ r }}{% if cfg.address %}: {{ cfg.address }}{% endif %}</span>{% else %}<span class="muted">none</span>{% endfor %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="pad">No channels are running, so nothing can be delivered.
+{% if not dev_mode %}Set <code>PESTER_DEV_MODE=true</code> to enable the mock channel.{% endif %}</p>
+{% endif %}
+</section>
+<p class="note">The mock channel is an in-memory messenger for trying Pester out; use it from the
+<a href="/admin/chat">Messenger</a> page. Its conversations reset when Pester restarts. Adding and configuring
+channels here, including Telegram, arrives with M6 and M8.</p>
+{% endblock %}

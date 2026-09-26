@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Messenger{% endblock %}
+{% block content %}
+<h1>Messenger</h1>
+{% if not channel %}
+<section class="card">
+  <p>The mock channel isn't running. Until channels can be configured here (M6), start Pester with
+  <code>PESTER_DEV_MODE=true</code> to enable it.</p>
+</section>
+{% else %}
+<form method="get" class="filters">
+  <label>Chat as
+    <select name="address" onchange="this.form.submit()">
+      {% for a, r in known %}<option value="{{ a }}" {{ 'selected' if a == address }}>{{ r }}{% if a != r %} ({{ a }}){% endif %}</option>{% endfor %}
+      {% if address and address not in known | map(attribute=0) %}<option selected>{{ address }}</option>{% endif %}
+    </select>
+  </label>
+  <details class="inline">
+    <summary>New address</summary>
+    <input name="address" placeholder="address" form="new-address">
+    <button form="new-address">Open</button>
+  </details>
+</form>
+<form id="new-address" method="get"></form>
+{% if address %}
+{% if not recipient %}
+<p class="note">No recipient uses the address <code>{{ address }}</code>, so Pester ignores its messages.
+After M6, messages from unknown addresses will show up as pairing requests to approve.</p>
+{% endif %}
+<section class="phone">
+  {% include "partials/chat_log.html" %}
+  <div class="commands">
+    {% for c in ["/status", "/skip", "/snooze 2h", "/pause", "/resume"] %}
+      <button type="button" class="chip" data-command="{{ c }}">{{ c }}</button>
+    {% endfor %}
+  </div>
+  <form class="composer" hx-post="/admin/chat/{{ address }}" hx-target="#chat-log" hx-swap="outerHTML"
+        hx-on::after-request="if (event.detail.successful) { this.reset(); clearReply(); }">
+    <input type="hidden" name="reply_to" id="reply-to">
+    <div class="replying" id="replying" hidden>Replying to <span></span> <button type="button" class="link" onclick="clearReply()">×</button></div>
+    <input name="text" placeholder="Type a reply…" autocomplete="off" autofocus>
+    <button>Send</button>
+  </form>
+</section>
+{% else %}
+<section class="card"><p class="muted">No recipient has a mock address yet. Add
+<code>channels: {fake: {address: …}}</code> to a recipient in <code>config.yaml</code>, or open a new address.</p></section>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -11,8 +11,8 @@ same way).
 
 Pester is **LAN-only** by design. Nothing needs to reach it from the internet: producers on your network
 call its API, and it makes only outbound connections (your LLM provider, and messaging channels once they
-exist). Don't port-forward 8000 or put it behind a public reverse proxy. The admin UI (coming in M7) uses a
-single admin password, which is fine on a LAN and not fine on the internet.
+exist). Don't port-forward 8000 or put it behind a public reverse proxy. The admin UI uses a single admin
+password, which is fine on a LAN and not fine on the internet.
 
 ## Dockge walkthrough
 
@@ -32,14 +32,32 @@ single admin password, which is fine on a LAN and not fine on the internet.
    Without it, `llm` evaluations are echoed back.
 4. **Deploy.** The first deploy builds the image, which takes a minute or two.
 5. Check it: `http://<server>:8000/ready` should say `"ready"`.
-6. Submit a job and answer it through the mock channel:
+6. Open `http://<server>:8000/admin` and set the admin password (see [Admin UI](#admin-ui)).
+7. Submit a job, then answer it as kate on the admin UI's **Messenger** page:
 
    ```sh
    curl -H "Authorization: Bearer <token>" -H 'content-type: application/json' \
      -d '{"recipient_id":"kate","prompt":"Did you water the plants?","response_options":["Yes","No"],"evaluation":{"prompt":"YES/NO"}}' \
      http://<server>:8000/api/v1/jobs
-   uv run pester chat kate --url http://<server>:8000   # from a checkout on your machine
    ```
+
+## Admin UI
+
+Open `http://<server>:8000/admin`. On first visit it asks for a **setup code**, which Pester prints in its
+logs at startup (Dockge's log view, or `docker compose logs pester`):
+
+```text
+WARNING pester.admin.auth: Admin UI is not set up. Open /admin/setup and enter code K7QF-2MXD
+```
+
+Then choose the admin password. The UI has a dashboard (queue counts, health, recent activity), a job
+browser with each job's full timeline and evaluation audit, a **Messenger** page where you can be a
+recipient on the mock channel, personality preview, and pause/resume per recipient. Clients, recipients,
+channels, and pacing are shown read-only until config moves into the database (M6).
+
+Forgot the password? `docker compose exec pester pester admin reset-password`, restart, and set a new one.
+
+## Updating
 
 To update, use **Update** in Dockge (or `docker compose build --pull && docker compose up -d`). Pending
 work survives restarts; a message that was mid-send during a crash is never resent (see spec §12.1).

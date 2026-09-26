@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Jobs{% endblock %}
+{% block content %}
+<h1>Jobs</h1>
+<form method="get" class="filters">
+  <select name="status" onchange="this.form.submit()">
+    <option value="">any status</option>
+    {% for s in statuses %}<option {{ 'selected' if filters.status == s }}>{{ s }}</option>{% endfor %}
+  </select>
+  <select name="recipient" onchange="this.form.submit()">
+    <option value="">any recipient</option>
+    {% for r in recipients %}<option {{ 'selected' if filters.recipient == r }}>{{ r }}</option>{% endfor %}
+  </select>
+  <select name="client" onchange="this.form.submit()">
+    <option value="">any client</option>
+    {% for c in clients %}<option {{ 'selected' if filters.client == c }}>{{ c }}</option>{% endfor %}
+  </select>
+  <noscript><button>Filter</button></noscript>
+</form>
+<section class="card flush">
+{% if jobs %}
+<table>
+  <thead><tr><th>Status</th><th>Recipient</th><th>Client</th><th>Prompt</th><th>Updated</th></tr></thead>
+  {% for j in jobs %}
+  <tr>
+    <td>{{ status(j.status) }}</td>
+    <td>{{ j.recipient_id }}</td>
+    <td>{{ j.client_id }}</td>
+    <td><a href="/admin/jobs/{{ j.client_id }}/{{ j.job_id }}">{{ j.prompt | truncate_text(70) }}</a></td>
+    <td class="muted nowrap">{{ j.updated_at | dt }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted pad">No jobs match.</p>
+{% endif %}
+</section>
+{% if next_before %}
+<p><a href="?status={{ filters.status }}&recipient={{ filters.recipient }}&client={{ filters.client }}&before={{ next_before }}">Older →</a></p>
+{% endif %}
+{% endblock %}

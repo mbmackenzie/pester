@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_macros.html" import readonly_note, csrf with context %}
+{% block title %}Recipients{% endblock %}
+{% block content %}
+<h1>Recipients</h1>
+{{ readonly_note() }}
+<section class="card flush">
+{% if recipients %}
+<table>
+  <thead><tr><th>Recipient</th><th>Timezone</th><th>Quiet hours</th><th>Channels</th><th>Now</th><th></th></tr></thead>
+  {% for id, r, s in recipients %}
+  <tr>
+    <td><strong>{{ id }}</strong></td>
+    <td>{{ r.timezone }}</td>
+    <td>{% if r.quiet_hours %}{{ r.quiet_hours.start.strftime("%H:%M") }}–{{ r.quiet_hours.end.strftime("%H:%M") }}{% else %}<span class="muted">global</span>{% endif %}</td>
+    <td>
+      {% for name, cfg in r.channels.items() %}
+        <span class="chip">{{ "mock" if name == "fake" else name }}{% if cfg.address %}: {{ cfg.address }}{% endif %}</span>
+      {% else %}<span class="muted">none</span>{% endfor %}
+    </td>
+    <td>
+      {% if s.paused %}<span class="status status-paused">PAUSED</span>{% else %}<span class="status status-active">ACTIVE</span>{% endif %}
+      <span class="muted small">{{ s.queued }} queued · {{ s.awaiting | length }} awaiting</span>
+    </td>
+    <td class="right">
+      <form method="post" action="/admin/recipients/{{ id }}/{{ 'resume' if s.paused else 'pause' }}">
+        {{ csrf() }}<button class="small secondary">{{ "Resume" if s.paused else "Pause" }}</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted pad">No recipients yet. Add one under <code>recipients:</code> in <code>config.yaml</code>.</p>
+{% endif %}
+</section>
+<p class="note">Pausing holds new prompts for that person, just like their own <code>/pause</code> command. Jobs
+already delivered stay open.</p>
+{% endblock %}

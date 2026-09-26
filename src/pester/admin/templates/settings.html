@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_macros.html" import readonly_note, csrf with context %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+{{ readonly_note() }}
+<div class="columns">
+<section class="card">
+  <h3>Pacing</h3>
+  <dl>
+    <dt>Quiet hours</dt><dd>{% if scheduler.quiet_hours %}{{ scheduler.quiet_hours.start.strftime("%H:%M") }}–{{ scheduler.quiet_hours.end.strftime("%H:%M") }} in each person's timezone{% else %}none{% endif %}</dd>
+    <dt>Spacing</dt><dd>at least {{ scheduler.min_interval_minutes }} min between prompts, ± up to {{ scheduler.jitter_minutes }} min jitter</dd>
+    <dt>Daily cap</dt><dd>{{ scheduler.max_messages_per_day }} prompts per person per day</dd>
+    <dt>Open at once</dt><dd>{{ scheduler.max_outstanding }} unanswered prompt{{ "s" if scheduler.max_outstanding != 1 }} per person</dd>
+    <dt>Answer window</dt><dd>{{ (scheduler.default_answer_within_seconds / 3600) | round(1) }} h unless the job says otherwise</dd>
+    <dt>Debounce</dt><dd>{{ scheduler.debounce_seconds }} s to join multi-message answers</dd>
+    <dt>Longest snooze</dt><dd>{{ scheduler.max_snooze_hours }} h</dd>
+  </dl>
+</section>
+<section class="card">
+  <h3>LLM</h3>
+  <dl>
+    <dt>API key</dt><dd>{% if llm_key_set %}<span class="dot ok"></span> set by environment{% else %}<span class="dot idle"></span> not set: <code>llm</code> evaluations are echoed back{% endif %}</dd>
+    <dt>Model</dt><dd><code>{{ llm.model }}</code></dd>
+    <dt>Endpoint</dt><dd>{{ llm.base_url or "OpenAI" }}</dd>
+    <dt>Output</dt><dd>{{ llm.response_format }}, up to {{ llm.max_attempts }} attempts</dd>
+  </dl>
+  <h3>Delivery retries</h3>
+  <dl>
+    <dt>Attempts</dt><dd>{{ delivery.max_attempts }}, backing off from {{ delivery.backoff_seconds }} s to {{ delivery.max_backoff_seconds }} s</dd>
+  </dl>
+</section>
+</div>
+<section class="card">
+  <h3>Admin password</h3>
+  {% if request.query_params.get("password") == "changed" %}<p class="success">Password changed. Other sessions were signed out.</p>{% endif %}
+  {% if password_error %}<p class="error">{{ password_error }}</p>{% endif %}
+  <form method="post" action="/admin/settings/password" class="stack narrow-form">
+    {{ csrf() }}
+    <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>New password <input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
+    <label>Confirm new password <input type="password" name="confirm" autocomplete="new-password" minlength="8" required></label>
+    <button>Change password</button>
+  </form>
+  <form method="post" action="/admin/settings/sign-out-everywhere" class="spaced">
+    {{ csrf() }}<button class="secondary">Sign out everywhere</button>
+  </form>
+</section>
+{% endblock %}

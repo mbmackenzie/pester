@@ -1,0 +1,43 @@
+{% from "_macros.html" import status %}
+<div class="tiles">
+  <a class="tile" href="/admin/jobs?status=QUEUED"><span>Queued</span><strong>{{ counts.queued }}</strong></a>
+  <a class="tile" href="/admin/jobs?status=AWAITING"><span>Outstanding</span><strong>{{ counts.outstanding }}</strong></a>
+  <a class="tile" href="/admin/jobs?status=COMPLETED"><span>Completed (24h)</span><strong>{{ counts.completed_since }}</strong></a>
+  <a class="tile {{ 'warn' if counts.failed_since }}" href="/admin/jobs?status=FAILED"><span>Failed (24h)</span><strong>{{ counts.failed_since }}</strong></a>
+</div>
+<section class="card">
+  <h3>Health</h3>
+  <ul class="health">
+    <li><span class="dot {{ 'ok' if checks.database.ok else 'bad' }}"></span>database</li>
+    {% if checks.workers %}
+      {% for name in ["scheduler", "delivery", "evaluation"] %}
+        <li title="{{ checks.workers[name].last_error or '' }}">
+          <span class="dot {{ 'ok' if checks.workers[name].running and not checks.workers[name].last_error else 'bad' }}"></span>{{ name }}
+        </li>
+      {% endfor %}
+    {% endif %}
+    {% for name in checks.channels.enabled %}
+      <li><span class="dot {{ 'ok' if name in checks.channels.started else 'bad' }}"></span>{{ "mock" if name == "fake" else name }}</li>
+    {% else %}
+      <li><span class="dot bad"></span>no channels</li>
+    {% endfor %}
+    <li><span class="dot {{ 'ok' if llm_live else 'idle' }}"></span>llm {{ llm_model if llm_live else "(echo mode)" }}</li>
+  </ul>
+</section>
+<section class="card">
+  <h3>Recent activity</h3>
+  {% if activity %}
+  <table>
+    {% for a in activity %}
+    <tr>
+      <td class="muted nowrap">{{ a.occurred_at | dt }}</td>
+      <td>{{ a.recipient_id }}</td>
+      <td>{{ status(a.label) }}</td>
+      <td><a href="/admin/jobs/{{ a.client_id }}/{{ a.job_id }}">{{ a.prompt | truncate_text(70) }}</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Nothing yet. Once a producer submits a job, its lifecycle shows up here.</p>
+  {% endif %}
+</section>

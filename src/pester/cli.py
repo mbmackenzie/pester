@@ -37,6 +37,25 @@ def _chat(args: argparse.Namespace) -> None:
         asyncio.run(run_chat(args.url, args.address))
 
 
+def _reset_password(args: argparse.Namespace) -> None:
+    import asyncio
+
+    from pester.admin.auth import AdminAuth
+    from pester.config import Settings
+    from pester.core.clock import SystemClock
+    from pester.storage.db import Database
+
+    async def reset() -> None:
+        db = await Database.open(Settings().database_path)
+        try:
+            await AdminAuth(db, SystemClock()).reset()
+        finally:
+            await db.close()
+
+    asyncio.run(reset())
+    print("Admin password cleared. Restart Pester, then open /admin/setup with the code from the logs.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pester", description="Jobs in. Humans bothered. Events out.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -55,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("address", help="the recipient's fake channel address")
     chat.add_argument("--url", default="http://127.0.0.1:8000", help="Pester server URL")
     chat.set_defaults(func=_chat)
+
+    admin = sub.add_parser("admin", help="admin UI maintenance")
+    admin_sub = admin.add_subparsers(dest="admin_command", required=True)
+    reset = admin_sub.add_parser("reset-password", help="clear the admin password and sign out every session")
+    reset.set_defaults(func=_reset_password)
 
     return parser
 

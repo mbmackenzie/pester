@@ -32,6 +32,7 @@ class InMemoryChannel:
         self._clock = clock
         self._handler: InboundHandler | None = None
         self._chats: defaultdict[str, list[ChatMessage]] = defaultdict(list)
+        self._last_id: dict[str, int] = {}
         self._send_failures: list[Exception] = []
 
     @property
@@ -102,6 +103,15 @@ class InMemoryChannel:
             received_at=chat.at,
         )
 
+    def continue_after(self, last_ids: Mapping[str, int]) -> None:
+        """Number new messages after these per-address ids.
+
+        Conversations live in memory, but Pester stores external ids, so after a restart numbering must not
+        start again at 1: a reply to a reused id would be routed to an old job.
+        """
+        for address, last_id in last_ids.items():
+            self._last_id[address] = max(self._last_id.get(address, 0), last_id)
+
     def fail_next_send(self, error: Exception | None = None) -> None:
         self._send_failures.append(error or ChannelError("simulated send failure"))
 
@@ -122,8 +132,10 @@ class InMemoryChannel:
         reply_to: int | None = None,
     ) -> ChatMessage:
         chat = self._chats[address]
+        message_id = self._last_id.get(address, 0) + 1
+        self._last_id[address] = message_id
         message = ChatMessage(
-            id=len(chat) + 1,
+            id=message_id,
             direction=direction,
             text=text,
             options=options,
