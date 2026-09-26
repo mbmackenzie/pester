@@ -1,0 +1,24 @@
+<div id="chat-log" class="chat-log" hx-get="/admin/chat/{{ address }}/log?after={{ last_id }}"
+     hx-trigger="every 2s" hx-swap="outerHTML">
+  {% for m in messages %}
+  <div class="bubble {{ 'mine' if m.direction == 'in' else 'theirs' }}" data-id="{{ m.id }}">
+    {% if m.reply_to %}<div class="quote">↪ #{{ m.reply_to }}</div>{% endif %}
+    {% if m.text %}<div class="prewrap">{{ m.text }}</div>{% endif %}
+    {% if m.selected_option %}<div><span class="chip">{{ m.selected_option }}</span></div>{% endif %}
+    {% if m.options %}
+    <div class="options">
+      {% for o in m.options %}
+      <button class="chip" hx-post="/admin/chat/{{ address }}" hx-target="#chat-log" hx-swap="outerHTML"
+              hx-vals='{"selected_option": {{ o | tojson }}, "reply_to": "{{ m.id }}"}'>{{ o }}</button>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="meta">
+      {{ m.at | dt }}
+      {% if m.direction == 'out' %}· <button type="button" class="link" onclick="replyTo({{ m.id }})">reply</button>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="muted center">No messages yet. Submit a job for this recipient and it will appear here.</p>
+  {% endfor %}
+</div>

@@ -3,6 +3,9 @@ from typing import Any
 from fastapi import APIRouter, Response, status
 
 from pester.api.deps import RepoDep, RuntimeDep, StateDep
+from pester.runtime import Runtime
+from pester.state import AppState
+from pester.storage.repository import Repository
 
 router = APIRouter()
 
@@ -16,6 +19,15 @@ async def health() -> dict[str, str]:
 @router.get("/ready")
 async def ready(state: StateDep, repo: RepoDep, runtime: RuntimeDep, response: Response) -> dict[str, Any]:
     """Readiness: able to deliver and evaluate. 503 with the failing checks otherwise."""
+    checks = await readiness_checks(state, repo, runtime)
+    is_ready = all(check["ok"] for check in checks.values())
+    if not is_ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {"status": "ready" if is_ready else "not_ready", "checks": checks}
+
+
+async def readiness_checks(state: AppState, repo: Repository, runtime: Runtime) -> dict[str, dict[str, Any]]:
+    """The checks behind ``/ready``, also shown on the admin dashboard."""
     checks: dict[str, dict[str, Any]] = {}
 
     try:
@@ -48,8 +60,4 @@ async def ready(state: StateDep, repo: RepoDep, runtime: RuntimeDep, response: R
 
     # Informational: jobs naming an unregistered evaluator are rejected at submit, not stuck.
     checks["evaluators"] = {"ok": True, "registered": state.evaluators.names()}
-
-    is_ready = all(check["ok"] for check in checks.values())
-    if not is_ready:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return {"status": "ready" if is_ready else "not_ready", "checks": checks}
+    return checks

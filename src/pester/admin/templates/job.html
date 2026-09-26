@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status, csrf with context %}
+{% block title %}Job{% endblock %}
+{% block content %}
+<p><a href="/admin/jobs">← Jobs</a></p>
+<div class="title-row">
+  <h1>{{ job.spec.prompt | truncate_text(90) }}</h1>
+  {{ status(job.row.status) }}
+  {% if job.cancellable %}
+  <form method="post" action="/admin/jobs/{{ job.row.client_id }}/{{ job.row.job_id }}/cancel"
+        onsubmit="return confirm('Cancel this job?')">
+    {{ csrf() }}<button class="danger small">Cancel</button>
+  </form>
+  {% endif %}
+</div>
+<p class="muted">
+  client <strong>{{ job.row.client_id }}</strong> · recipient <strong>{{ job.row.recipient_id }}</strong>
+  · personality <strong>{{ job.spec.personality_id or "default" }}</strong>
+  · evaluator <strong>{{ job.spec.evaluation.evaluator }}</strong>
+  {% if job.batch_id %}· batch <code>{{ job.batch_id }}</code>{% endif %}
+  · job <code>{{ job.row.job_id }}</code>
+</p>
+
+<section class="card">
+  <h3>Timeline</h3>
+  <ol class="timeline">
+    {% for e in job.timeline %}
+    <li>
+      <span class="muted nowrap">{{ e.occurred_at | dt }}</span>
+      {{ status(e.label) }}
+      <span class="detail">
+        {% if e.payload.response %}“{{ e.payload.response.text }}”{% endif %}
+        {% if e.payload.feedback %}feedback: “{{ e.payload.feedback.text }}”{% endif %}
+        {% if e.payload.reason %}{{ e.payload.reason }}{% endif %}
+        {% if e.payload.error %}<span class="error-text">{{ e.payload.error }}</span>{% endif %}
+        {% if e.payload.until %}until {{ e.payload.until }}{% endif %}
+        {% if e.payload.result %}<code>{{ e.payload.result | tojson }}</code>{% endif %}
+      </span>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+
+<section class="card">
+  <h3>Job</h3>
+  <p class="prewrap">{{ job.spec.prompt }}</p>
+  {% if job.spec.response_options %}<p>Options: {% for o in job.spec.response_options %}<span class="chip">{{ o }}</span>{% endfor %}</p>{% endif %}
+  <details><summary>Evaluation prompt</summary><pre>{{ job.spec.evaluation.prompt }}</pre></details>
+  <details><summary>Full submission</summary><pre>{{ job.spec.model_dump(mode="json", exclude_none=True) | pretty_json }}</pre></details>
+</section>
+
+{% if job.deliveries %}
+<section class="card flush">
+  <h3 class="pad">Deliveries</h3>
+  <table>
+    <thead><tr><th>Kind</th><th>Channel</th><th>Status</th><th>Attempts</th><th>Sent</th><th>Text</th></tr></thead>
+    {% for d in job.deliveries %}
+    <tr>
+      <td>{{ d.kind }}</td>
+      <td>{{ "mock" if d.channel == "fake" else d.channel }} → {{ d.address }}</td>
+      <td>{{ status(d.status) }}{% if d.error %}<div class="error-text small">{{ d.error }}</div>{% endif %}</td>
+      <td>{{ d.attempts }}</td>
+      <td class="muted nowrap">{{ d.sent_at | dt }}</td>
+      <td>{{ d.message.text | truncate_text(80) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+{% for ev in job.evaluations %}
+<section class="card">
+  <h3>Evaluation {{ loop.index if job.evaluations | length > 1 }} {{ status(ev.status) }}</h3>
+  <p class="muted">
+    {{ ev.evaluator }}{% if ev.model %} · {{ ev.model }}{% endif %}
+    {% if ev.latency_ms is not none %} · {{ "%.1f" | format(ev.latency_ms / 1000) }} s{% endif %}
+    {% if ev.usage and ev.usage.total_tokens %} · {{ ev.usage.total_tokens }} tokens{% endif %}
+    · {{ ev.attempts }} attempt{{ "s" if ev.attempts != 1 }}
+    {% if ev.personality_id %} · voiced by {{ ev.personality_id }}{% if ev.personality_fallback %} (fell back to neutral){% endif %}{% endif %}
+  </p>
+  {% if ev.error %}<p class="error">{{ ev.error }}</p>{% endif %}
+  {% if ev.result %}<pre>{{ ev.result | pretty_json }}</pre>{% endif %}
+  {% if ev.feedback_facts %}<p><span class="muted">Facts:</span> {{ ev.feedback_facts }}</p>{% endif %}
+  {% if ev.feedback_text %}<p><span class="muted">Sent:</span> {{ ev.feedback_text }}</p>{% endif %}
+  {% if ev.request %}<details><summary>Request</summary><pre>{{ ev.request | pretty_json }}</pre></details>{% endif %}
+  {% if ev.raw %}<details><summary>Raw response</summary><pre>{{ ev.raw | pretty_json }}</pre></details>{% endif %}
+</section>
+{% endfor %}
+{% endblock %}

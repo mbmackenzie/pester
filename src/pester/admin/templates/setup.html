@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Set up{% endblock %}
+{% block public %}
+<div class="card">
+  <h2>Set the admin password</h2>
+  <p>Find the setup code in the container logs (<code>docker compose logs pester</code>, or the stack's log
+  view in Dockge). It changes every time Pester restarts until setup is done.</p>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/admin/setup" class="stack">
+    <label>Setup code <input name="code" autocomplete="off" required autofocus placeholder="XXXX-XXXX"></label>
+    <label>Password <input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
+    <label>Confirm password <input type="password" name="confirm" autocomplete="new-password" minlength="8" required></label>
+    <button>Set password</button>
+  </form>
+  <p class="note">The admin UI is meant for your local network only. Don't expose port 8000 to the internet.</p>
+</div>
+{% endblock %}

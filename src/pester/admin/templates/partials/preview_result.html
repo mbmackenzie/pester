@@ -1,0 +1,19 @@
+{% from "_macros.html" import status %}
+{% if error %}
+<p class="error">{{ error }}</p>
+{% else %}
+<div class="preview">
+  <p>{{ status(result.status) }}
+    <span class="muted">{{ result.evaluator }}{% if result.model %} · {{ result.model }}{% endif %}
+    {% if result.latency_ms is not none %} · {{ "%.1f" | format(result.latency_ms / 1000) }} s{% endif %}
+    {% if result.usage and result.usage.total_tokens %} · {{ result.usage.total_tokens }} tokens{% endif %}</span></p>
+  <div class="bubble theirs">{{ result.prompt }}</div>
+  {% if result.error %}<p class="error">{{ result.error }}</p>{% endif %}
+  {% if result.feedback %}
+    <div class="bubble theirs">{{ result.feedback }}</div>
+    {% if result.personality_fallback %}<p class="note">The personality failed, so the neutral feedback was used.</p>{% endif %}
+  {% endif %}
+  {% if result.feedback_facts %}<p><span class="muted">Facts from the evaluator:</span> {{ result.feedback_facts }}</p>{% endif %}
+  {% if result.result %}<details><summary>Result</summary><pre>{{ result.result | pretty_json }}</pre></details>{% endif %}
+</div>
+{% endif %}

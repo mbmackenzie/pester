@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+{% if not steps | selectattr(1) | list | length == steps | length %}
+<section class="card checklist">
+  <h3>Getting started</h3>
+  <ol>
+    {% for label, done, href in steps %}
+      <li class="{{ 'done' if done }}"><a href="{{ href }}">{{ label }}</a></li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+<div hx-get="/admin/partials/overview" hx-trigger="every 10s" hx-swap="innerHTML">
+  {% include "partials/overview.html" %}
+</div>
+{% endblock %}

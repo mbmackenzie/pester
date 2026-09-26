@@ -9,6 +9,9 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 
+from pester import admin
+from pester.admin.auth import AdminAuth
+from pester.admin.queries import AdminQueries
 from pester.api import batches, dev, events, health, jobs, personalities, preview
 from pester.config import PesterConfig, Settings, load_config
 from pester.core.clock import Clock, SystemClock
@@ -60,6 +63,9 @@ def create_app(
         runtime = Runtime(repo, state.config, state.clock, channels, state.evaluators, state.personalities)
         app.state.repo = repo
         app.state.runtime = runtime
+        app.state.admin = AdminAuth(db, state.clock)
+        app.state.admin_queries = AdminQueries(db)
+        await app.state.admin.announce()
         await runtime.recover()
         await runtime.start_channels()
         if settings.run_workers:
@@ -77,6 +83,7 @@ def create_app(
         app.include_router(module.router)
     if settings.dev_mode:
         app.include_router(dev.router)
+    admin.install(app)
     _register_error_handlers(app)
     return app
 

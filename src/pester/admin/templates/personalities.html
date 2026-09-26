@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_macros.html" import readonly_note %}
+{% block title %}Personalities{% endblock %}
+{% block content %}
+<h1>Personalities</h1>
+<p>A personality changes how prompts and feedback are phrased, never how answers are evaluated. Producers pick
+one per job with <code>personality_id</code>.</p>
+{{ readonly_note() }}
+<section class="card flush">
+<table>
+  <thead><tr><th>Id</th><th>Type</th><th>Description</th></tr></thead>
+  {% for p in personalities %}
+  <tr>
+    <td><strong>{{ p.id }}</strong>{% if p.id == default_id %} <span class="chip">default</span>{% endif %}</td>
+    <td><code>{{ p.type }}</code></td>
+    <td>{{ p.description }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</section>
+
+<section class="card">
+  <h3>Preview</h3>
+  <p class="muted">Evaluate a sample reply and see the feedback a person would get. Nothing is stored or sent.
+  LLM evaluators and personalities make real API calls.</p>
+  <form class="grid-form" hx-post="/admin/personalities/preview" hx-target="#preview-result"
+        hx-indicator="#preview-spinner">
+    <label>Personality
+      <select name="personality_id">
+        {% for p in personalities %}<option {{ 'selected' if p.id == default_id }}>{{ p.id }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Evaluator
+      <select name="evaluator">{% for e in evaluators %}<option {{ 'selected' if e == 'llm' }}>{{ e }}</option>{% endfor %}</select>
+    </label>
+    <label class="wide">Prompt <input name="prompt" required value="Why does SQLite's WAL mode help concurrent readers?"></label>
+    <label class="wide">Response options <span class="muted">(comma-separated, optional)</span> <input name="options"></label>
+    <label class="wide">Evaluation instructions
+      <textarea name="evaluation_prompt" rows="3" required>Score 0-1 for correctness. Mention what was missing.</textarea>
+    </label>
+    <label class="wide">Sample reply <input name="reply" required value="writers append to a log so readers aren't blocked"></label>
+    <label class="check wide"><input type="checkbox" name="personality_prompt" value="true"> Also voice the prompt</label>
+    <div class="wide"><button>Preview</button> <span id="preview-spinner" class="htmx-indicator muted">Thinking…</span></div>
+  </form>
+  <div id="preview-result"></div>
+</section>
+{% endblock %}
