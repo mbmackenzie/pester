@@ -80,7 +80,13 @@ def config() -> PesterConfig:
             },
             "personalities": {
                 "default": {"type": "neutral"},
-                "weather-goblin": {"type": "llm", "prompt": "Be a goblin."},
+                "weather-goblin": {"type": "llm", "prompt": "Be a goblin.", "description": "Grumpy"},
+                "houseplant": {
+                    "type": "template",
+                    "description": "Judgmental houseplant",
+                    "feedback": "🌿 {{ feedback_facts }}",
+                    "prompt": "🌱 {{ prompt }}",
+                },
             },
         }
     )

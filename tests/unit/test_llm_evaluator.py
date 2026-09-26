@@ -135,6 +135,7 @@ async def test_gives_up_after_max_attempts(
     assert problem in info.value.error
     assert info.value.request is not None
     assert info.value.raw is not None  # the last model output is kept for audit
+    assert info.value.request == llm.last  # the audit shows the last request actually sent
 
 
 async def test_transient_errors_retry_with_backoff(llm: FakeLLM, sleeps: Sleeps) -> None:

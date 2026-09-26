@@ -296,3 +296,16 @@ async def test_direct_send_is_not_routed_as_prompt(loop: Loop) -> None:
     await loop.chat.inject("kate", "reply to the notice", reply_to=int(receipt.external_id))
     await loop.settle()
     assert await loop.status(job_id) == "COMPLETED"  # fell back to the single open question
+
+
+async def test_output_schema_enforced_for_every_evaluator(loop: Loop) -> None:
+    schema = {"type": "object", "properties": {"score": {"type": "number"}}, "required": ["score"]}
+    job_id = await loop.submit(
+        evaluation={"prompt": "x", "output_schema": schema}
+    )  # scripted returns no score
+    await loop.settle()
+    await loop.chat.inject("kate", "answer")
+    await loop.settle()
+    events = await loop.events(job_id)
+    assert events[-1]["type"] == "INTERACTION_FAILED"
+    assert "does not match output_schema" in events[-1]["payload"]["error"]

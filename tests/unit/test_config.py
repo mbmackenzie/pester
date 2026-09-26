@@ -74,3 +74,12 @@ def test_api_key_read_from_env_not_config(monkeypatch: pytest.MonkeyPatch) -> No
     assert "sk-test" not in repr(settings)
     with pytest.raises(ValidationError):
         PesterConfig.model_validate({"llm": {"api_key": "sk-nope"}})
+
+
+def test_example_config_personalities_build() -> None:
+    from pester.personality.base import PersonalityServices
+    from pester.personality.registry import build_registry
+
+    config = load_config(EXAMPLE)
+    registry = build_registry(config, PersonalityServices(config.llm, None, EXAMPLE.parent))
+    assert [p.id for p in registry.all()] == ["default", "judgmental-houseplant", "weather-goblin"]

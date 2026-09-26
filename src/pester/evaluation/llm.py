@@ -122,11 +122,12 @@ class LLMEvaluator:
                     attempts=attempt,
                 )
             last_error = error
-            messages = [
-                *messages,
-                assistant(content or ""),
-                user(f"That output was invalid: {error}. Reply again with only the corrected JSON."),
-            ]
+            if attempt < self._config.max_attempts:  # the audit must show only what was actually sent
+                messages = [
+                    *messages,
+                    assistant(content or ""),
+                    user(f"That output was invalid: {error}. Reply again with only the corrected JSON."),
+                ]
 
         raise EvaluationFailedError(
             f"gave up after {attempt} attempts: {last_error}", attempts=attempt, request=audit(), raw=raw
