@@ -67,6 +67,9 @@ def create_app(
         app.state.admin_queries = AdminQueries(db)
         await app.state.admin.announce()
         await runtime.recover()
+        for channel in channels:
+            if isinstance(channel, InMemoryChannel):
+                channel.continue_after(await repo.last_external_ids(channel.name))
         await runtime.start_channels()
         if settings.run_workers:
             runtime.start_workers()

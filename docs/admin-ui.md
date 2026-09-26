@@ -62,13 +62,13 @@ changes on every restart until setup is done, and it's never stored.
 **Password storage.** `hashlib.scrypt` from the standard library, with a random salt, stored in a new
 `admin_settings` table. No new dependency.
 
-**Sessions.** A random session id kept in an `admin_sessions` table (id hash, created, last seen,
-expires). It's sent in an `HttpOnly`, `SameSite=Strict` cookie, with `Secure` only when the request came in
-over HTTPS. Sessions expire after 30 days of inactivity. Logging out deletes the row. Resetting the
+**Sessions.** A random session id kept in an `admin_sessions` table (id hash, CSRF token, created,
+expires). It's sent in an `HttpOnly`, `SameSite=Lax` cookie scoped to `/admin`, with `Secure` only when the
+request came in over HTTPS. (`Lax` rather than `Strict`, so following a link to Pester from Dockge doesn't
+show a login page. The CSRF token covers the cross-site POSTs that `Strict` would have blocked.) Sessions expire after 30 days of inactivity. Logging out deletes the row. Resetting the
 password (`pester admin reset-password` on the CLI) deletes every session.
 
-**CSRF.** `SameSite=Strict` already blocks cross-site form posts in modern browsers. On top of that, every
-session has a CSRF token: it's rendered in a `<meta>` tag, htmx sends it as a header (`hx-headers` on
+**CSRF.** Every session has a CSRF token: it's rendered in a `<meta>` tag, htmx sends it as a header (`hx-headers` on
 `<body>`), plain forms send it as a hidden field, and every unsafe method checks it.
 
 **Lost password.** `docker compose exec pester pester admin reset-password` deletes the password, so the

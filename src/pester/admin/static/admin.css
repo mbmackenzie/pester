@@ -23,9 +23,10 @@ code, pre { font-family: var(--mono); font-size: 0.85em; background: var(--code)
 code { padding: 0.1em 0.35em; }
 pre { padding: 0.75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
 
-.shell { display: grid; grid-template-columns: 200px 1fr; min-height: 100vh; }
+.shell { min-height: 100vh; padding-left: 200px; }
 .sidebar { background: var(--panel); border-right: 1px solid var(--border); padding: 1.25rem 0.75rem;
-  display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; }
+  display: flex; flex-direction: column; gap: 2px; position: fixed; top: 0; bottom: 0; left: 0; width: 200px;
+  overflow-y: auto; }
 .sidebar a { padding: 0.45rem 0.75rem; border-radius: 7px; color: var(--text); display: flex;
   align-items: center; justify-content: space-between; }
 .sidebar a:hover { background: var(--bg); text-decoration: none; }
@@ -36,9 +37,13 @@ main { padding: 2rem; max-width: 1100px; width: 100%; }
 main.narrow { max-width: 440px; margin: 8vh auto; }
 .brand-big { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.03em; text-align: center; }
 @media (max-width: 760px) {
-  .shell { grid-template-columns: 1fr; }
-  .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
-  .sidebar .logout { margin: 0; }
+  .shell { padding-left: 0; }
+  .sidebar { position: static; width: auto; flex-direction: row; flex-wrap: nowrap; overflow-x: auto;
+    border-right: none; border-bottom: 1px solid var(--border); padding: 0.5rem; align-items: center; }
+  .sidebar a, .sidebar .logout { white-space: nowrap; flex: none; }
+  .sidebar .brand { margin: 0 0.5rem 0 0; }
+  .sidebar .dot { margin-left: 0.35rem; }
+  .sidebar .logout { margin: 0 0 0 0.5rem; }
   main { padding: 1rem; }
 }
 
@@ -147,7 +152,8 @@ dd { margin: 0; }
 .bubble.highlight { outline: 2px solid var(--accent); }
 .bubble .meta { font-size: 0.7rem; opacity: 0.7; margin-top: 0.2rem; }
 .bubble.mine .meta button.link { color: inherit; }
-.bubble .quote { font-size: 0.75rem; opacity: 0.75; }
+.bubble .quote { font-size: 0.75rem; opacity: 0.75; border-left: 2px solid currentColor; padding-left: 0.4rem;
+  margin-bottom: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bubble .options { margin-top: 0.4rem; }
 .preview .bubble { margin-bottom: 0.5rem; }
 .commands { padding: 0.4rem 0.75rem 0; border-top: 1px solid var(--border); }

@@ -316,15 +316,16 @@ def _mock_addresses(state: AppState) -> list[tuple[str, str]]:
     return found
 
 
+def _conversation(messages: list[ChatMessage]) -> dict[str, Any]:
+    return {
+        "messages": messages,
+        "last_id": messages[-1].id if messages else 0,
+        "quotes": {m.id: m.text or m.selected_option or "" for m in messages},  # for replies
+    }
+
+
 def _chat_log(request: Request, admin: Admin, address: str, messages: list[ChatMessage]) -> Response:
-    return render(
-        request,
-        "partials/chat_log.html",
-        admin,
-        address=address,
-        messages=messages,
-        last_id=messages[-1].id if messages else 0,
-    )
+    return render(request, "partials/chat_log.html", admin, address=address, **_conversation(messages))
 
 
 @router.get("/chat")
@@ -341,9 +342,8 @@ async def chat(request: Request, admin: AdminDep, address: str | None = None) ->
         channel=channel,
         address=address,
         known=known,
-        recipient={a: r for a, r in known}.get(address or ""),
-        messages=messages,
-        last_id=messages[-1].id if messages else 0,
+        recipient=dict(known).get(address or ""),
+        **_conversation(messages),
     )
 
 

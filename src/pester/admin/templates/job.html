@@ -29,8 +29,8 @@
       <span class="muted nowrap">{{ e.occurred_at | dt }}</span>
       {{ status(e.label) }}
       <span class="detail">
-        {% if e.payload.response %}“{{ e.payload.response.text }}”{% endif %}
-        {% if e.payload.feedback %}feedback: “{{ e.payload.feedback.text }}”{% endif %}
+        {% if e.payload.response and e.label in ("ANSWERED", "LATE_RESPONSE") %}“{{ e.payload.response.text }}”{% endif %}
+        {% if e.payload.feedback and e.label == "COMPLETED" %}feedback: “{{ e.payload.feedback.text }}”{% endif %}
         {% if e.payload.reason %}{{ e.payload.reason }}{% endif %}
         {% if e.payload.error %}<span class="error-text">{{ e.payload.error }}</span>{% endif %}
         {% if e.payload.until %}until {{ e.payload.until }}{% endif %}

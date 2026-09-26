@@ -244,3 +244,28 @@ async def test_retry_backoff_survives_restart(tmp_path: Path, config: PesterConf
         clock.advance(5 * S)
         await runtime.run_until_idle()
         assert len(channel.sent("kate")) == 1
+
+
+async def test_mock_channel_numbering_survives_restart(
+    tmp_path: Path, config: PesterConfig, clock: FakeClock
+) -> None:
+    """The mock channel forgets its conversations on restart, but must not reuse message ids."""
+    first = InMemoryChannel(clock)
+    app, client = await boot(tmp_path, config, clock, first)
+    async with app.router.lifespan_context(app), client:
+        await client.post("/api/v1/jobs", json=job_payload(id="old"), headers=auth(TOKEN_A))
+        await runtime_of(app).run_until_idle()
+        await first.inject("kate", "old answer", reply_to=1)
+        await runtime_of(app).run_until_idle()
+
+    second = InMemoryChannel(clock)  # a fresh process: empty conversations
+    app, client = await boot(tmp_path, config, clock, second)
+    async with app.router.lifespan_context(app), client:
+        await client.post("/api/v1/jobs", json=job_payload(id="new"), headers=auth(TOKEN_A))
+        await runtime_of(app).run_until_idle()
+        prompt = second.sent("kate")[0]
+        assert prompt.id > 3  # after the old prompt, answer, and feedback
+        await second.inject("kate", "new answer", reply_to=prompt.id)
+        await runtime_of(app).run_until_idle()
+        status = (await client.get("/api/v1/jobs/new", headers=auth(TOKEN_A))).json()["status"]
+    assert status == "COMPLETED"

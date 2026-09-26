@@ -21,7 +21,8 @@ function replyTo(id) {
   document.getElementById("reply-to").value = id;
   const banner = document.getElementById("replying");
   banner.hidden = false;
-  banner.querySelector("span").textContent = "#" + id;
+  const bubble = document.querySelector(`.bubble[data-id="${id}"] .prewrap`);
+  banner.querySelector("span").textContent = bubble ? `“${bubble.textContent.slice(0, 60)}”` : "#" + id;
   document.querySelector(".composer input[name=text]").focus();
 }
 

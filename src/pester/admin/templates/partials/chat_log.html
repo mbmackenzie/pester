@@ -2,7 +2,7 @@
      hx-trigger="every 2s" hx-swap="outerHTML">
   {% for m in messages %}
   <div class="bubble {{ 'mine' if m.direction == 'in' else 'theirs' }}" data-id="{{ m.id }}">
-    {% if m.reply_to %}<div class="quote">↪ #{{ m.reply_to }}</div>{% endif %}
+    {% if m.reply_to %}<div class="quote">{{ quotes.get(m.reply_to, "#" ~ m.reply_to) | truncate_text(60) }}</div>{% endif %}
     {% if m.text %}<div class="prewrap">{{ m.text }}</div>{% endif %}
     {% if m.selected_option %}<div><span class="chip">{{ m.selected_option }}</span></div>{% endif %}
     {% if m.options %}
