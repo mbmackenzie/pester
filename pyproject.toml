@@ -7,6 +7,9 @@ requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.22.1",
     "fastapi[standard]>=0.141.1",
+    "jinja2>=3.1.6",
+    "jsonschema>=4.26.0",
+    "openai>=3.19.2",
     "pydantic-settings>=2.15.0",
     "python-ulid>=4.0.1",
     "pyyaml>=6.0.3",
@@ -22,12 +25,13 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "httpx2>=2.13.1",
     "hypothesis>=6.168.1",
     "pyright[nodejs]>=1.1.414",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
-    "respx>=0.23.1",
     "ruff>=0.16.9",
+    "types-jsonschema>=4.26.0.20260518",
 ]
 
 [tool.ruff]

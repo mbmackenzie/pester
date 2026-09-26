@@ -9,14 +9,14 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from pester.config import PesterConfig, Settings
+from pester.config import PesterConfig
 from pester.core.clock import FakeClock
 from pester.delivery.memory import ChatMessage, InMemoryChannel
 from pester.evaluation.base import EvaluatorRegistry
 from pester.evaluation.scripted import ScriptedEvaluator
 from pester.main import create_app
 from pester.runtime import Runtime
-from tests.conftest import TOKEN_A, auth, job_payload
+from tests.conftest import TOKEN_A, auth, job_payload, make_settings
 
 
 @dataclass
@@ -95,13 +95,13 @@ def app(
     chat: InMemoryChannel,
     evaluator: ScriptedEvaluator,
 ) -> FastAPI:
-    settings = Settings(database_path=tmp_path / "pester.sqlite", dev_mode=True, run_workers=False)
+    settings = make_settings(tmp_path)
     return create_app(
         settings=settings,
         config=config,
         clock=clock,
         channels=[chat],
-        evaluators=EvaluatorRegistry(default=evaluator),
+        evaluators=EvaluatorRegistry({"llm": evaluator, "rule": evaluator}),
     )
 
 

@@ -39,7 +39,13 @@ async def test_happy_path(loop: Loop) -> None:
     assert all(e["metadata"] == {"plant": "fern"} for e in events)
     evaluated = events[3]["payload"]
     assert evaluated["response"]["text"] == "yep, this morning"
-    assert evaluated["evaluation"] == {"result": {"answer": "YES"}, "evaluator": "scripted", "model": None}
+    assert evaluated["evaluation"]["result"] == {"answer": "YES"}
+    assert evaluated["evaluation"]["evaluator"] == "scripted"
+    assert evaluated["feedback"] == {
+        "text": "Logged: watered.",
+        "personality": "default",
+        "personality_fallback": False,
+    }
     assert evaluated["delivery"]["response_latency_s"] == 180.0
     assert events[4]["payload"]["feedback"]["text"] == "Logged: watered."
 

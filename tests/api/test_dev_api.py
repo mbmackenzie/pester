@@ -3,12 +3,12 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI
 
-from pester.config import PesterConfig, Settings
+from pester.config import PesterConfig
 from pester.core.clock import FakeClock
 from pester.devchat import ChatLine, ChatSession
 from pester.main import create_app
 from pester.runtime import Runtime
-from tests.conftest import TOKEN_A, auth, job_payload
+from tests.conftest import TOKEN_A, auth, job_payload, make_settings
 
 
 async def test_chat_session_full_loop(client: httpx.AsyncClient, app: FastAPI) -> None:
@@ -44,7 +44,7 @@ async def test_chat_requires_text_or_option(client: httpx.AsyncClient) -> None:
 
 
 async def test_dev_routes_absent_outside_dev_mode(tmp_path: Path, config: PesterConfig) -> None:
-    settings = Settings(database_path=tmp_path / "p.sqlite", dev_mode=False, run_workers=False)
+    settings = make_settings(tmp_path, dev_mode=False)
     app = create_app(settings=settings, config=config, clock=FakeClock())
     async with (
         app.router.lifespan_context(app),

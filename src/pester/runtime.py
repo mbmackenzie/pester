@@ -13,6 +13,7 @@ from pester.delivery.router import ResponseRouter
 from pester.delivery.worker import DeliveryWorker
 from pester.evaluation.base import EvaluatorRegistry
 from pester.evaluation.worker import EvaluationWorker
+from pester.personality.registry import PersonalityRegistry
 from pester.scheduler.worker import SchedulerWorker
 from pester.storage.repository import Repository
 
@@ -29,12 +30,15 @@ class Runtime:
         clock: Clock,
         channels: Sequence[DeliveryChannel],
         evaluators: EvaluatorRegistry,
+        personalities: PersonalityRegistry,
     ) -> None:
         self.channels: Mapping[str, DeliveryChannel] = {c.name: c for c in channels}
+        self.evaluators = evaluators
+        self.personalities = personalities
         self.router = ResponseRouter(repo, config, self.channels)
-        self.scheduler = SchedulerWorker(repo, config, self.channels, clock)
+        self.scheduler = SchedulerWorker(repo, config, self.channels, clock, personalities)
         self.delivery = DeliveryWorker(repo, self.channels)
-        self.evaluation = EvaluationWorker(repo, evaluators)
+        self.evaluation = EvaluationWorker(repo, evaluators, personalities)
         self._steps: dict[str, Callable[[], Awaitable[int]]] = {
             "scheduler": self.scheduler.run_once,
             "delivery": self.delivery.run_once,

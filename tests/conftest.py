@@ -16,6 +16,28 @@ TOKEN_B = "token-b"
 TOKEN_READONLY = "token-readonly"
 
 
+@pytest.fixture(autouse=True)
+def _isolate_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never see the developer's real keys or PESTER_* settings, so they never call a real LLM."""
+    import os
+
+    for name in list(os.environ):
+        if name == "OPENAI_API_KEY" or name.startswith("PESTER_"):
+            monkeypatch.delenv(name)
+
+
+def make_settings(tmp_path: Path, **overrides: Any) -> Settings:
+    """Settings for tests: never reads .env, no API key, workers off unless asked."""
+    values: dict[str, Any] = {
+        "database_path": tmp_path / "pester.sqlite",
+        "dev_mode": True,
+        "run_workers": False,
+        "openai_api_key": None,
+    }
+    values.update(overrides)
+    return Settings(_env_file=None, **values)  # pyright: ignore[reportCallIssue]
+
+
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -71,7 +93,7 @@ def clock() -> FakeClock:
 
 @pytest.fixture
 def app(tmp_path: Path, config: PesterConfig, clock: FakeClock) -> FastAPI:
-    settings = Settings(database_path=tmp_path / "pester.sqlite", dev_mode=True, run_workers=False)
+    settings = make_settings(tmp_path)
     return create_app(settings=settings, config=config, clock=clock)
 
 

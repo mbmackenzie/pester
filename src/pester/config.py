@@ -10,11 +10,11 @@ Two layers:
 from datetime import time
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     port: int = 8000
     dev_mode: bool = False  # enables the fake channel and the unauthenticated /dev routes
     run_workers: bool = True  # tests disable this and drive workers with Runtime.run_until_idle()
+    openai_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("OPENAI_API_KEY", "PESTER_OPENAI_API_KEY")
+    )
 
 
 class _Strict(BaseModel):
@@ -76,18 +79,33 @@ class RecipientConfig(_Strict):
         return ZoneInfo(self.timezone)
 
 
-class PersonalityConfig(_Strict):
-    type: Literal["neutral", "template", "llm"]
-    prompt: str | None = None
-    template: str | None = None
+class PersonalityConfig(BaseModel):
+    """A registered personality.
 
-    @model_validator(mode="after")
-    def _check_body(self) -> Self:
-        if self.type == "llm" and not self.prompt:
-            raise ValueError("llm personalities require a prompt")
-        if self.type == "template" and not self.template:
-            raise ValueError("template personalities require a template")
-        return self
+    ``type`` is a built-in (``neutral``, ``template``, ``llm``) or an import path ``package.module:factory``
+    for a deployer's own implementation. Any other keys are options for that type, validated by its
+    factory when the registry is built at startup.
+    """
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    type: str
+    description: str = ""
+
+    @property
+    def options(self) -> dict[str, Any]:
+        return dict(self.model_extra or {})
+
+
+class LLMConfig(_Strict):
+    """OpenAI-compatible provider settings. The API key comes from ``OPENAI_API_KEY``, never from here."""
+
+    model: str = "gpt-5-mini"
+    base_url: str | None = None
+    response_format: Literal["json_schema", "json_object"] = "json_schema"
+    temperature: float | None = None
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    timeout_seconds: float = Field(default=60, gt=0)
 
 
 class SchedulerConfig(_Strict):
@@ -103,13 +121,28 @@ class SchedulerConfig(_Strict):
 class PesterConfig(_Strict):
     clients: dict[str, ClientConfig] = Field(default_factory=dict)
     recipients: dict[str, RecipientConfig] = Field(default_factory=dict)
-    personalities: dict[str, PersonalityConfig] = Field(
-        default_factory=lambda: {"default": PersonalityConfig(type="neutral")}
-    )
+    personalities: dict[str, PersonalityConfig] = Field(default_factory=dict[str, PersonalityConfig])
+    default_personality: str = "default"
     scheduler: SchedulerConfig = SchedulerConfig()
+    llm: LLMConfig = LLMConfig()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ensure_default_personality(cls, data: object) -> object:
+        # A neutral "default" personality always exists unless the deployer defines their own.
+        if not isinstance(data, dict):
+            return data
+        raw = cast(dict[str, Any], data)
+        personalities = dict(cast(dict[str, Any], raw.get("personalities") or {}))
+        personalities.setdefault("default", {"type": "neutral"})
+        return {**raw, "personalities": personalities}
 
     @model_validator(mode="after")
     def _check_references(self) -> Self:
+        if self.default_personality not in self.personalities:
+            raise ValueError(
+                f"default_personality {self.default_personality!r} is not a registered personality"
+            )
         for name, client in self.clients.items():
             unknown = client.recipients - self.recipients.keys()
             if unknown:
