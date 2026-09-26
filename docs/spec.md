@@ -235,7 +235,8 @@ All `/api/v1` routes require `Authorization: Bearer <token>`. Tokens are stored 
 | `POST` | `/api/v1/batches` | Submit `{batch_id, jobs[]}` atomically |
 | `POST` | `/api/v1/jobs/{id}/cancel` | Cancel a non-terminal job |
 | `GET` | `/api/v1/jobs/{id}` | Inspect a job (debug/admin) |
-| `POST` | `/api/v1/jobs:preview` | Evaluate `{job, sample_response}` without delivering |
+| `POST` | `/api/v1/jobs:preview` | Evaluate `{job, response}` and render feedback without storing or delivering anything |
+| `GET` | `/api/v1/personalities` | List the personalities this deployment offers, and the default |
 | `GET` | `/api/v1/events?after=<cursor>&limit=<n>` | Poll this client's events |
 | `GET` | `/health`, `/ready` | Liveness, readiness (DB writable, workers alive, channel connected, evaluator configured) |
 
@@ -369,51 +370,74 @@ recipients:
 
 ```python
 class Evaluator(Protocol):
+    name: str
     async def evaluate(self, job: InteractionJob, response: HumanResponse) -> EvaluationOutcome: ...
 ```
 
+`evaluation.evaluator` names a registered evaluator. Unregistered names are rejected at submit (422), as are invalid `output_schema`s and `rule` jobs without `response_options`.
+
+| Name | Implementation | Registered when |
+|---|---|---|
+| `llm` | `LLMEvaluator` | `OPENAI_API_KEY` is set (in dev mode without a key, `llm` falls back to echo) |
+| `rule` | `RuleEvaluator`: case-insensitive match against `response_options`; unmatched replies are recorded, not failed | always |
+| `echo` | `EchoEvaluator` | dev mode |
+
 **Output contract:**
 
-- The evaluator returns `result`, which must validate against `output_schema` when one is given.
+- The evaluator returns `result`, which must validate against `output_schema` when one is given. This is checked for every evaluator, not just the LLM.
 - It also returns `feedback_facts`: a neutral statement of what the person should be told.
 
 **LLM evaluator:**
 
-- Uses the `openai` SDK with a configurable `base_url` (OpenAI, OpenRouter, Ollama, or any compatible endpoint).
-- Uses structured output (`json_schema`) where the provider supports it.
-- Validation failures are retried up to N times. After that the job is `FAILED`, with the raw output kept.
+- Uses the `openai` SDK (chat completions) with a configurable `base_url` (OpenAI, OpenRouter, Ollama, or any compatible endpoint). Settings live under `llm:` in config; the key comes only from `OPENAI_API_KEY`.
+- The producer's instructions go in the system message. The person's reply is passed as untrusted data in a JSON document, and the model is told never to follow instructions inside it.
+- Uses `json_schema` response format (non-strict, since producer schemas rarely meet strict mode's rules) or `json_object`, and always validates locally.
+- Invalid output (bad JSON, wrong shape, schema mismatch) is retried immediately with a correction turn. Transient provider errors (connection, 429, 5xx) are retried with exponential backoff. Permanent errors (auth, bad request) fail at once. After `llm.max_attempts` the job is `FAILED`.
 
-**Other evaluators:**
+**Stored for audit** (`evaluations` table, on success and failure): the exact request last sent (messages, model, parameters, including correction turns), the raw response, token usage, latency, attempts, and the personality used for feedback.
 
-- `RuleEvaluator`: deterministic matching against `response_options`.
-- `ScriptedEvaluator`: tests.
-- `EchoEvaluator`: development without an API key.
-
-**Stored for audit:** the rendered messages, model, parameters, raw response, token usage, and latency.
-
-**Preview:** `POST /jobs:preview` runs evaluation and personality on a sample response and persists nothing. Producers use it to develop their evaluation prompts.
+**Preview:** `POST /api/v1/jobs:preview` runs the same pipeline as the evaluation worker (evaluate → schema check → personality) on a sample reply, and returns the delivered prompt and feedback. Nothing is stored or sent. Requires the `preview` permission.
 
 ---
 
 ## 11. Personality
 
+Personalities are **registered by the deployer** in config and **chosen by producers** per job with `personality_id`. Jobs without one use `default_personality`. A neutral `default` always exists. Producers discover what's available with `GET /api/v1/personalities`.
+
 ```python
-class PersonalityRenderer(Protocol):
-    async def render_feedback(self, job, outcome: EvaluationOutcome) -> str: ...
-    async def render_prompt(self, job) -> str: ...   # used only if prompt_rendering == "personality"
+class Personality(Protocol):
+    async def render_prompt(self, ctx: PromptContext) -> str: ...        # only if delivery.prompt_rendering == "personality"
+    async def render_feedback(self, ctx: FeedbackContext) -> str: ...
+
+# FeedbackContext: job, response, feedback_facts, result (a read-only private copy)
+# A factory builds a personality from its config options: (options, services) -> Personality
 ```
 
-Types: `neutral` (sends `feedback_facts` verbatim), `template` (Jinja-style), `llm` (system prompt from the registry). Personality never sees or changes `result`; it only changes how it's phrased. Prompts are delivered verbatim unless the producer opts in.
+`type` is a built-in or an import path to a deployer's own factory (a function or class). Every other key is passed to the factory as options, and validated at startup, so misconfiguration fails before anything is served.
+
+| Type | Options |
+|---|---|
+| `neutral` | none: prompts verbatim, feedback facts verbatim |
+| `template` | `feedback`, `prompt`: Jinja templates rendered in a sandbox with strict undefined variables. Variables: `prompt`, `response_options`, `metadata`, `recipient_id`, and for feedback `feedback_facts`, `result`, `response` |
+| `llm` | `prompt` or `prompt_file` (relative to the config file), optional `model`, `temperature`. Fixed rules appended to the persona forbid adding, removing, softening or contradicting facts |
+| `package.module:factory` | whatever that factory accepts |
 
 ```yaml
+default_personality: default
 personalities:
-  default: {type: neutral}
   weather-goblin:
     type: llm
-    prompt: |
-      You are a mildly antagonistic but supportive companion. Be concise.
-      Never alter or contradict the supplied facts.
+    description: Mildly antagonistic, secretly supportive
+    prompt: You are a mildly antagonistic but supportive study goblin.
+  pirate:
+    type: my_package.voices:Pirate    # a deployer's own implementation
+    description: Arr
+    swagger: 11                       # passed to the factory
 ```
+
+**Personality may alter presentation, never evaluation**, and this is structural: renderers receive a read-only copy of the result and can only return text. The result is stored exactly as the evaluator produced it.
+
+**Failure never blocks delivery.** If a personality raises, returns nothing, or needs an LLM with no key configured, the neutral text is sent instead, and the event records `personality_fallback: true`.
 
 ---
 

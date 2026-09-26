@@ -6,11 +6,11 @@ from pathlib import Path
 
 import httpx
 
-from pester.config import PesterConfig, Settings
+from pester.config import PesterConfig
 from pester.core.clock import FakeClock
 from pester.delivery.memory import InMemoryChannel
 from pester.main import create_app
-from tests.conftest import TOKEN_A, auth, job_payload
+from tests.conftest import TOKEN_A, auth, job_payload, make_settings
 
 
 async def wait_for(condition: Callable[[], Awaitable[bool]]) -> None:
@@ -21,7 +21,7 @@ async def wait_for(condition: Callable[[], Awaitable[bool]]) -> None:
 async def test_background_workers_complete_the_loop(tmp_path: Path, config: PesterConfig) -> None:
     clock = FakeClock()
     chat = InMemoryChannel(clock)
-    settings = Settings(database_path=tmp_path / "p.sqlite", dev_mode=True, run_workers=True)
+    settings = make_settings(tmp_path, run_workers=True)
     app = create_app(settings=settings, config=config, clock=clock, channels=[chat])
     async with (
         app.router.lifespan_context(app),

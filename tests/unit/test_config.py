@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from pester.config import Permission, PesterConfig, load_config
+from pester.config import Permission, PesterConfig, Settings, load_config
 
 EXAMPLE = Path(__file__).parents[2] / "config.example.yaml"
 HASH = "sha256:" + "0" * 64
@@ -53,6 +53,33 @@ def test_unknown_keys_rejected() -> None:
         PesterConfig.model_validate({"scheduler": {"max_outstandnig": 2}})
 
 
-def test_llm_personality_requires_prompt() -> None:
-    with pytest.raises(ValidationError, match="require a prompt"):
-        PesterConfig.model_validate({"personalities": {"g": {"type": "llm"}}})
+def test_default_personality_always_exists() -> None:
+    config = PesterConfig.model_validate(
+        {"personalities": {"pirate": {"type": "template", "feedback": "Arr"}}}
+    )
+    assert set(config.personalities) == {"default", "pirate"}
+    assert config.personalities["pirate"].options == {"feedback": "Arr"}
+
+
+def test_default_personality_must_be_registered() -> None:
+    with pytest.raises(ValidationError, match="default_personality"):
+        PesterConfig.model_validate({"default_personality": "ghost"})
+
+
+def test_api_key_read_from_env_not_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    assert settings.openai_api_key is not None
+    assert settings.openai_api_key.get_secret_value() == "sk-test"
+    assert "sk-test" not in repr(settings)
+    with pytest.raises(ValidationError):
+        PesterConfig.model_validate({"llm": {"api_key": "sk-nope"}})
+
+
+def test_example_config_personalities_build() -> None:
+    from pester.personality.base import PersonalityServices
+    from pester.personality.registry import build_registry
+
+    config = load_config(EXAMPLE)
+    registry = build_registry(config, PersonalityServices(config.llm, None, EXAMPLE.parent))
+    assert [p.id for p in registry.all()] == ["default", "judgmental-houseplant", "weather-goblin"]

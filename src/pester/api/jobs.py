@@ -1,10 +1,13 @@
+from typing import NoReturn
+
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel
 
-from pester.api.deps import ConfigDep, Principal, ReadPrincipal, RepoDep, RuntimeDep, SubmitPrincipal
-from pester.config import PesterConfig
+from pester.api.deps import Principal, ReadPrincipal, RepoDep, RuntimeDep, StateDep, SubmitPrincipal
 from pester.core.models import InteractionJob, JobRecord, UtcDatetime
 from pester.core.states import JobStatus
+from pester.evaluation.schema import schema_error
+from pester.state import AppState
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
@@ -28,36 +31,45 @@ class JobView(BaseModel):
     job: InteractionJob
 
 
-def check_submission(
-    config: PesterConfig, principal: Principal, job: InteractionJob, where: str = ""
-) -> None:
-    """Validate a job against deployment config. ``where`` prefixes messages, e.g. ``jobs[3]: ``."""
+def check_submission(state: AppState, principal: Principal, job: InteractionJob, where: str = "") -> None:
+    """Validate a job against this deployment. ``where`` prefixes messages, e.g. ``jobs[3]: ``."""
+
+    def reject(code: int, message: str) -> NoReturn:
+        raise HTTPException(code, f"{where}{message}")
+
     if job.recipient_id not in principal.client.recipients:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, f"{where}client may not target recipient {job.recipient_id!r}"
-        )
-    recipient = config.recipients[job.recipient_id]
-    if job.personality_id is not None and job.personality_id not in config.personalities:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, f"{where}unknown personality {job.personality_id!r}"
-        )
+        reject(status.HTTP_403_FORBIDDEN, f"client may not target recipient {job.recipient_id!r}")
+    recipient = state.config.recipients[job.recipient_id]
+    if job.personality_id is not None and job.personality_id not in state.personalities:
+        reject(status.HTTP_422_UNPROCESSABLE_CONTENT, f"unknown personality {job.personality_id!r}")
     if job.delivery.channel is not None and job.delivery.channel not in recipient.channels:
-        raise HTTPException(
+        reject(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
-            f"{where}recipient {job.recipient_id!r} has no {job.delivery.channel!r} channel",
+            f"recipient {job.recipient_id!r} has no {job.delivery.channel!r} channel",
         )
+    evaluation = job.evaluation
+    if state.evaluators.get(evaluation.evaluator) is None:
+        available = ", ".join(state.evaluators.names())
+        reject(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"evaluator {evaluation.evaluator!r} is not configured on this server (available: {available})",
+        )
+    if evaluation.evaluator == "rule" and not job.response_options:
+        reject(status.HTTP_422_UNPROCESSABLE_CONTENT, "the rule evaluator requires response_options")
+    if evaluation.output_schema is not None and (error := schema_error(evaluation.output_schema)):
+        reject(status.HTTP_422_UNPROCESSABLE_CONTENT, f"output_schema is not a valid JSON Schema: {error}")
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def submit_job(
     job: InteractionJob,
     principal: SubmitPrincipal,
-    config: ConfigDep,
+    state: StateDep,
     repo: RepoDep,
     runtime: RuntimeDep,
     response: Response,
 ) -> JobAccepted:
-    check_submission(config, principal, job)
+    check_submission(state, principal, job)
     record, created = await repo.submit_job(principal.client_id, job)
     runtime.nudge()
     if not created:

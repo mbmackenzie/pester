@@ -16,6 +16,7 @@ from pester.core.models import (
     BatchSubmission,
     DeliveryKind,
     DeliveryStatus,
+    EvaluationOutcome,
     Event,
     HumanResponse,
     InteractionJob,
@@ -406,10 +407,9 @@ class Repository:
         answered: AnsweredJob,
         *,
         evaluator: str,
-        model: str | None,
-        result: dict[str, Any],
-        feedback_facts: str,
-        raw: dict[str, Any] | None,
+        outcome: EvaluationOutcome,
+        personality_id: str,
+        personality_fallback: bool,
         feedback: OutboundMessage,
     ) -> None:
         """Store the evaluation, move the job to EVALUATED, and queue the feedback message."""
@@ -417,14 +417,22 @@ class Repository:
             job_pk = answered.job.pk
             await conn.execute(
                 "INSERT INTO evaluations (job_pk, status, evaluator, model, result, feedback_facts, raw, "
-                "created_at) VALUES (?, 'SUCCESS', ?, ?, ?, ?, ?, ?)",
+                "request, usage, latency_ms, attempts, personality_id, personality_fallback, feedback_text, "
+                "created_at) VALUES (?, 'SUCCESS', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     job_pk,
                     evaluator,
-                    model,
-                    json.dumps(result),
-                    feedback_facts,
-                    json.dumps(raw) if raw is not None else None,
+                    outcome.model,
+                    json.dumps(outcome.result),
+                    outcome.feedback_facts,
+                    _json_or_none(outcome.raw),
+                    _json_or_none(outcome.request),
+                    _json_or_none(outcome.usage),
+                    outcome.latency_ms,
+                    outcome.attempts,
+                    personality_id,
+                    int(personality_fallback),
+                    feedback.text,
                     to_db(self._clock.now()),
                 ),
             )
@@ -443,7 +451,19 @@ class Repository:
             answered_at = answered.response.received_at
             payload = {
                 "response": _response_payload(answered.response),
-                "evaluation": {"result": result, "evaluator": evaluator, "model": model},
+                "evaluation": {
+                    "result": outcome.result,
+                    "evaluator": evaluator,
+                    "model": outcome.model,
+                    "usage": outcome.usage,
+                    "latency_ms": outcome.latency_ms,
+                    "attempts": outcome.attempts,
+                },
+                "feedback": {
+                    "text": feedback.text,
+                    "personality": personality_id,
+                    "personality_fallback": personality_fallback,
+                },
                 "delivery": {
                     "sent_at": to_db(sent_at),
                     "answered_at": to_db(answered_at),
@@ -455,18 +475,40 @@ class Repository:
                 conn, job_pk, DeliveryKind.FEEDBACK, prompt["channel"], prompt["address"], feedback
             )
 
-    async def evaluation_failed(self, answered: AnsweredJob, *, evaluator: str, error: str) -> None:
+    async def evaluation_failed(
+        self,
+        answered: AnsweredJob,
+        *,
+        evaluator: str,
+        error: str,
+        attempts: int = 1,
+        request: dict[str, Any] | None = None,
+        raw: dict[str, Any] | None = None,
+    ) -> None:
         async with self._db.transaction() as conn:
             job_pk = answered.job.pk
             await conn.execute(
-                "INSERT INTO evaluations (job_pk, status, evaluator, error, created_at) "
-                "VALUES (?, 'FAILED', ?, ?, ?)",
-                (job_pk, evaluator, error, to_db(self._clock.now())),
+                "INSERT INTO evaluations (job_pk, status, evaluator, error, attempts, request, raw, "
+                "created_at) VALUES (?, 'FAILED', ?, ?, ?, ?, ?, ?)",
+                (
+                    job_pk,
+                    evaluator,
+                    error,
+                    attempts,
+                    _json_or_none(request),
+                    _json_or_none(raw),
+                    to_db(self._clock.now()),
+                ),
             )
             row = await _fetch_job_by_pk(conn, job_pk)
             assert row is not None
             if row["status"] == JobStatus.ANSWERED:
-                payload = {"reason": "evaluation_failed", "error": error}
+                payload = {
+                    "reason": "evaluation_failed",
+                    "error": error,
+                    "evaluator": evaluator,
+                    "attempts": attempts,
+                }
                 await self._apply(conn, row, JobStatus.FAILED, payload)
 
     # ---- Internals ----------------------------------------------------------------------------------
@@ -576,6 +618,10 @@ class Repository:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (new_id(), client_id, job_pk, event_type, json.dumps(payload), to_db(self._clock.now())),
         )
+
+
+def _json_or_none(value: object) -> str | None:
+    return json.dumps(value) if value is not None else None
 
 
 def _response_payload(response: HumanResponse) -> dict[str, Any]:

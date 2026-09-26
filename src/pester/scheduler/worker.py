@@ -6,6 +6,8 @@ from pester.core.clock import Clock
 from pester.core.messages import OutboundMessage
 from pester.core.models import JobRecord
 from pester.delivery.base import DeliveryChannel
+from pester.personality.base import PromptContext
+from pester.personality.registry import PersonalityRegistry
 from pester.scheduler.policy import Candidate, decide
 from pester.storage.repository import Repository
 
@@ -19,11 +21,13 @@ class SchedulerWorker:
         config: PesterConfig,
         channels: Mapping[str, DeliveryChannel],
         clock: Clock,
+        personalities: PersonalityRegistry,
     ) -> None:
         self._repo = repo
         self._config = config
         self._channels = channels
         self._clock = clock
+        self._personalities = personalities
 
     async def run_once(self) -> int:
         """Apply one scheduling pass. Returns the number of jobs claimed or expired."""
@@ -57,9 +61,15 @@ class SchedulerWorker:
             done += await self._repo.expire(key)
         for key in plan.send:
             job, channel, address = routable[key]
-            message = OutboundMessage(text=job.spec.prompt, options=job.spec.response_options)
+            message = OutboundMessage(text=await self._prompt_text(job), options=job.spec.response_options)
             done += await self._repo.claim_for_send(key, channel, address, message)
         return done
+
+    async def _prompt_text(self, job: JobRecord) -> str:
+        if job.spec.delivery.prompt_rendering != "personality":
+            return job.spec.prompt
+        personality = self._personalities.resolve(job.spec.personality_id)
+        return (await personality.prompt(PromptContext(job.spec))).text
 
     def _route(self, job: JobRecord) -> tuple[str, str] | None:
         """(channel, address) for a job: its requested channel, else the recipient's first enabled one."""

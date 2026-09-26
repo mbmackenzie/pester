@@ -3,18 +3,29 @@
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pester.core.models import EvaluationOutcome, HumanResponse, InteractionJob
 
-from pester.core.models import HumanResponse, InteractionJob
+__all__ = ["EvaluationFailedError", "EvaluationOutcome", "Evaluator", "EvaluatorRegistry"]
 
 
-class EvaluationOutcome(BaseModel):
-    model_config = ConfigDict(frozen=True)
+class EvaluationFailedError(Exception):
+    """An evaluator gave up. Carries whatever was attempted so the failure is auditable."""
 
-    result: dict[str, Any]
-    feedback_facts: str  # neutral statement of what the person should be told
-    model: str | None = None
-    raw: dict[str, Any] | None = Field(default=None, repr=False)
+    def __init__(
+        self,
+        error: str,
+        *,
+        evaluator: str | None = None,
+        attempts: int = 1,
+        request: dict[str, Any] | None = None,
+        raw: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(error)
+        self.error = error
+        self.evaluator = evaluator
+        self.attempts = attempts
+        self.request = request
+        self.raw = raw
 
 
 class Evaluator(Protocol):
@@ -25,11 +36,13 @@ class Evaluator(Protocol):
 
 
 class EvaluatorRegistry:
-    """Maps ``evaluation.evaluator`` names to implementations, with a fallback for unregistered names."""
+    """Maps ``evaluation.evaluator`` names to implementations. Unregistered names are rejected at submit."""
 
-    def __init__(self, default: Evaluator, by_name: Mapping[str, Evaluator] | None = None) -> None:
-        self._default = default
-        self._by_name = dict(by_name or {})
+    def __init__(self, by_name: Mapping[str, Evaluator]) -> None:
+        self._by_name = dict(by_name)
 
-    def get(self, name: str) -> Evaluator:
-        return self._by_name.get(name, self._default)
+    def get(self, name: str) -> Evaluator | None:
+        return self._by_name.get(name)
+
+    def names(self) -> list[str]:
+        return sorted(self._by_name)

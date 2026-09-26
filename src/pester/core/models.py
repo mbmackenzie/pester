@@ -123,6 +123,19 @@ class HumanResponse(_Model):
     raw: dict[str, Any] | None = None
 
 
+class EvaluationOutcome(_Model):
+    """What an evaluator concluded. ``result`` is producer-defined; everything else is for audit."""
+
+    result: dict[str, Any]
+    feedback_facts: str  # neutral statement of what the person should be told
+    model: str | None = None
+    request: dict[str, Any] | None = Field(default=None, repr=False)  # exact request sent, for audit
+    raw: dict[str, Any] | None = Field(default=None, repr=False)
+    usage: dict[str, int] | None = None
+    latency_ms: int | None = None
+    attempts: int = 1
+
+
 class Event(_Model):
     cursor: int
     event_id: str

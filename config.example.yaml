@@ -15,14 +15,35 @@ recipients:
       fake: {address: kate}
       # telegram: {user_id: 123456789, chat_id: 123456789}
 
+# Personalities are registered by the deployer and chosen per job by producers (`personality_id`).
+# Producers can list them with GET /api/v1/personalities. `type` is a built-in (neutral, template, llm)
+# or an import path to your own factory, e.g. `my_package.voices:Pirate`; other keys are its options.
+# A personality changes how feedback is phrased, never the evaluation itself.
+default_personality: default
+
 personalities:
   default:
     type: neutral
+    description: Plain feedback, exactly as the evaluator wrote it
+  judgmental-houseplant:
+    type: template
+    description: A fern with opinions
+    feedback: "The {{ metadata.plant | default('fern') }} rustles. {{ feedback_facts }}"
+    prompt: "{{ prompt }} (The fern is watching.)"
   weather-goblin:
     type: llm
+    description: Mildly antagonistic, secretly supportive
     prompt: |
-      You are a mildly antagonistic but supportive companion. Be concise.
-      Never alter or contradict the supplied facts.
+      You are a mildly antagonistic but supportive study goblin. Be concise and a little rude.
+    # prompt_file: personalities/goblin.md   # alternatively, relative to this file
+    # model: gpt-5-mini                      # defaults to llm.model
+
+# OpenAI-compatible provider. The API key comes from OPENAI_API_KEY (e.g. in .env), never from this file.
+llm:
+  model: gpt-5-mini
+  # base_url: https://openrouter.ai/api/v1
+  response_format: json_schema   # or json_object for providers without JSON Schema support
+  max_attempts: 3
 
 scheduler:
   quiet_hours: {start: "21:00", end: "08:30"}

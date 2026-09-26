@@ -1,5 +1,6 @@
 """End-to-end harness: the real app, an in-memory channel, a scripted evaluator, and a fake clock."""
 
+import sqlite3
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,14 +10,15 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from pester.config import PesterConfig, Settings
+from pester.config import PesterConfig
 from pester.core.clock import FakeClock
 from pester.delivery.memory import ChatMessage, InMemoryChannel
 from pester.evaluation.base import EvaluatorRegistry
 from pester.evaluation.scripted import ScriptedEvaluator
 from pester.main import create_app
 from pester.runtime import Runtime
-from tests.conftest import TOKEN_A, auth, job_payload
+from tests.conftest import TOKEN_A, auth, job_payload, make_settings
+from tests.llm_fakes import FakeLLM
 
 
 @dataclass
@@ -26,6 +28,14 @@ class Loop:
     chat: InMemoryChannel
     evaluator: ScriptedEvaluator
     clock: FakeClock
+    llm: FakeLLM
+    db_path: Path
+
+    def audit(self) -> list[dict[str, Any]]:
+        """The evaluations table, read directly from the SQLite file."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return [dict(row) for row in conn.execute("SELECT * FROM evaluations ORDER BY pk")]
 
     async def submit(self, token: str = TOKEN_A, **job: Any) -> str:
         resp = await self.client.post("/api/v1/jobs", json=job_payload(**job), headers=auth(token))
@@ -88,20 +98,33 @@ def chat(clock: FakeClock) -> InMemoryChannel:
 
 
 @pytest.fixture
+def llm() -> FakeLLM:
+    """Every e2e app talks to this fake. Unqueued requests fail loudly: no test calls an LLM by accident."""
+    return FakeLLM()
+
+
+@pytest.fixture
+def evaluator_registry(evaluator: ScriptedEvaluator) -> EvaluatorRegistry | None:
+    """Scripted by default. Override to return None to use the real defaults (LLM on the fake, rule, echo)."""
+    return EvaluatorRegistry({"llm": evaluator, "rule": evaluator})
+
+
+@pytest.fixture
 def app(
     tmp_path: Path,
     config: PesterConfig,
     clock: FakeClock,
     chat: InMemoryChannel,
-    evaluator: ScriptedEvaluator,
+    evaluator_registry: EvaluatorRegistry | None,
+    llm: FakeLLM,
 ) -> FastAPI:
-    settings = Settings(database_path=tmp_path / "pester.sqlite", dev_mode=True, run_workers=False)
     return create_app(
-        settings=settings,
+        settings=make_settings(tmp_path),
         config=config,
         clock=clock,
         channels=[chat],
-        evaluators=EvaluatorRegistry(default=evaluator),
+        evaluators=evaluator_registry,
+        llm_client=llm.client(),
     )
 
 
@@ -112,5 +135,7 @@ async def loop(
     chat: InMemoryChannel,
     evaluator: ScriptedEvaluator,
     clock: FakeClock,
+    llm: FakeLLM,
+    tmp_path: Path,
 ) -> AsyncIterator[Loop]:
-    yield Loop(client, app.state.runtime, chat, evaluator, clock)
+    yield Loop(client, app.state.runtime, chat, evaluator, clock, llm, tmp_path / "pester.sqlite")
