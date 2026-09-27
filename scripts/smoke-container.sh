@@ -31,7 +31,8 @@ wait_for "/health" curl -fs "$BASE/health"; check "/health"
 wait_for "/ready" curl -fs "$BASE/ready"; check "/ready"
 curl -fs "$BASE/admin/setup" | grep -q "Setup code" && curl -fs -o /dev/null "$BASE/admin/static/htmx.min.js" \
   || { echo "FAIL: admin UI templates or static files missing from the image"; exit 1; }; check "admin UI"
-"$ENGINE" logs "$NAME" 2>&1 | grep -q "enter code" || { echo "FAIL: no setup code in logs"; exit 1; }
+# The container's log capture can lag the process slightly, so wait for the line rather than reading once.
+wait_for "setup code in logs" sh -c "'$ENGINE' logs '$NAME' 2>&1 | grep -q 'enter code'"
 check "setup code logged"
 [ "$("$ENGINE" exec "$NAME" id -u)" != 0 ] || { echo "FAIL: runs as root"; exit 1; }; check "non-root"
 
