@@ -71,3 +71,14 @@ async def test_every_event_is_logged_with_context_and_no_secrets(
     everything = "\n".join(JsonFormatter().format(r) for r in caplog.records)
     assert secret not in everything
     assert TOKEN_A not in everything
+
+
+def test_http_client_request_logs_are_quiet() -> None:
+    """Telegram's Bot API puts the bot token in request URLs, which HTTP clients log at INFO."""
+    import logging
+
+    from pester.logs import configure_logging
+
+    configure_logging("DEBUG")
+    for name in ("httpx", "httpcore", "httpx2"):
+        assert not logging.getLogger(name).isEnabledFor(logging.INFO)

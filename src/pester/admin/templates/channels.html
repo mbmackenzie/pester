@@ -18,6 +18,7 @@
       {% if cfg and not cfg.enabled %}<span class="dot idle"></span> disabled
       {% elif st and st.running %}<span class="dot ok"></span> running
       {% else %}<span class="dot bad"></span> not running{% endif %}
+      {% if st and st.note %}<div class="muted small">{{ st.note }}</div>{% endif %}
       {% if st and st.error %}<div class="error-text small">{{ st.error }}</div>{% endif %}
       {% if cfg and cfg.enabled and not cfg.accept_pairing %}<div class="muted small">pairing off</div>{% endif %}
     </td>

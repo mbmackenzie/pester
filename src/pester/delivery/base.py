@@ -21,6 +21,12 @@ class PermanentChannelError(ChannelError):
 
 
 class DeliveryChannel(Protocol):
+    """A running channel instance.
+
+    Channels may also offer, and the admin UI uses when present: ``status_note`` (a property, e.g.
+    "connected as @bot") and ``invite_link(code) -> str | None`` (a link that sends ``/start <code>``).
+    """
+
     @property
     def name(self) -> str: ...
 

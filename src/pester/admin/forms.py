@@ -33,6 +33,7 @@ class FormField:
     value: Any = None  # the current value, for rendering
     secret_status: str | None = None  # for secrets: "environment", "database", or None when not set
     env: str | None = None  # for secrets: the overriding environment variable
+    advanced: bool = False  # rarely changed: shown collapsed
 
     @property
     def display(self) -> str:
@@ -95,6 +96,7 @@ def fields_for(
                 value=values.get(name),
                 secret_status=(secret_status or {}).get(name) if kind == "secret" else None,
                 env=str(raw["env"]) if kind == "secret" and "env" in raw else None,
+                advanced=bool(raw.get("advanced")),
             )
         )
     return result

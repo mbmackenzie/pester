@@ -13,7 +13,7 @@
   existing one to link another address.</p>
   {% for p, suggestion in pending %}
   <div class="card" style="margin-bottom: 0.75rem">
-    <p><strong>{{ p.address }}</strong> on <code>{{ p.channel }}</code> · {{ p.created_at | dt }}
+    <p><strong>{{ p.sender_name or p.address }}</strong>{% if p.sender_name %} <span class="muted">({{ p.address }})</span>{% endif %} on <code>{{ p.channel }}</code> · {{ p.created_at | dt }}
       {% if p.first_text %}· said “{{ p.first_text | truncate_text(80) }}”{% endif %}</p>
     <form method="post" action="/admin/pairings/{{ p.pk }}/approve" class="row-form">
       {{ csrf() }}
@@ -24,7 +24,7 @@
       <div class="actions" style="flex-basis: 100%; justify-content: flex-start">
         <button>Approve</button>
         <button class="secondary" formaction="/admin/pairings/{{ p.pk }}/reject" formnovalidate
-          onclick="return confirm('Ignore {{ p.address }} from now on?')">Reject</button>
+          onclick="return confirm('Ignore {{ p.sender_name or p.address }} from now on?')">Reject</button>
       </div>
     </form>
   </div>

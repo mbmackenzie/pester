@@ -22,7 +22,7 @@ from pester.delivery.adapters import (
     secret_fields,
     secret_name,
 )
-from pester.delivery.base import DeliveryChannel, InboundHandler
+from pester.delivery.base import ChannelError, DeliveryChannel, InboundHandler
 from pester.live import Snapshot
 
 log = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ class ChannelStatus:
     running: bool
     error: str | None
     injected: bool  # supplied by code (tests), not config
+    note: str | None = None  # from the channel, e.g. "connected as @bot"
 
 
 @dataclass
@@ -76,14 +77,44 @@ class ChannelManager:
 
     def status(self) -> list[ChannelStatus]:
         rows = [
-            ChannelStatus(name, "injected", name in self._started, self._errors.get(name), injected=True)
+            ChannelStatus(
+                name,
+                "injected",
+                name in self._started,
+                self._errors.get(name),
+                injected=True,
+                note=self._note(name),
+            )
             for name in self._injected
         ]
         rows += [
-            ChannelStatus(name, config.type, name in self._started, self._errors.get(name), injected=False)
+            ChannelStatus(
+                name,
+                config.type,
+                name in self._started,
+                self._errors.get(name),
+                injected=False,
+                note=self._note(name),
+            )
             for name, config in self._configured.items()
         ]
         return sorted(rows, key=lambda r: r.name)
+
+    def _note(self, name: str) -> str | None:
+        if name not in self._started:
+            return None
+        note = getattr(self.channels.get(name), "status_note", None)
+        return note if isinstance(note, str) else None
+
+    def invite_links(self, code: str) -> dict[str, str]:
+        """Links that pair someone with ``code``, from running channels that offer them."""
+        links: dict[str, str] = {}
+        for name in sorted(self._started):
+            make = getattr(self.channels.get(name), "invite_link", None)
+            link = make(code) if callable(make) else None
+            if isinstance(link, str):
+                links[name] = link
+        return links
 
     def effective(self, snapshot: Snapshot) -> dict[str, ChannelConfig]:
         """The enabled channel configs, plus dev mode's implicit mock channel."""
@@ -175,6 +206,11 @@ class ChannelManager:
     async def _start(self, name: str, channel: DeliveryChannel, on_inbound: InboundHandler) -> None:
         try:
             await channel.start(on_inbound)
+        except (
+            ChannelError
+        ) as exc:  # an expected failure with a message written for people (e.g. a bad token)
+            self._fail(name, str(exc))
+            return
         except Exception as exc:
             log.exception("channel %s failed to start", name, extra={"channel": name})
             self._fail(name, repr(exc))

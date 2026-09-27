@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf, error_box, option_field with context %}
+{% from "_macros.html" import csrf, error_box, option_fields with context %}
 {% block title %}{{ channel_name or "New channel" }}{% endblock %}
 {% block content %}
 <p><a href="/admin/channels">← Channels</a></p>
@@ -15,7 +15,7 @@
       <span class="help">Lowercase letters, digits, - and _. Recipients' links refer to this name.</span></label>
     {% endif %}
     <label>Description <input name="description" value="{{ values.description or '' }}" placeholder="optional"></label>
-    {% for f in fields %}{{ option_field(f) }}{% endfor %}
+    {{ option_fields(fields) }}
     <label class="check"><input type="checkbox" name="accept_pairing" value="true" {{ 'checked' if values.accept_pairing is not defined or values.accept_pairing }}>
       Accept pairing requests</label>
     <span class="help">A message from an unknown address becomes a request for you to approve on the Recipients page.</span>

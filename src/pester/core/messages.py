@@ -33,6 +33,7 @@ class InboundMessage(_Model):
     channel: str
     external_id: str  # unique per (channel, sender_address), like Telegram message ids per chat
     sender_address: str
+    sender_name: str | None = None  # how the channel names the sender, if it knows (shown when pairing)
     text: str | None = None
     command: Command | None = None
     selected_option: str | None = None

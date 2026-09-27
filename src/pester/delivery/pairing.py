@@ -49,7 +49,7 @@ class PairingDesk:
                 )
             return  # the welcome is sent by send_welcomes, like any approval
         pairing, created = await self._pairings.request(
-            message.channel, message.sender_address, recipient_config, message.text
+            message.channel, message.sender_address, recipient_config, message.text, message.sender_name
         )
         if pairing is None:
             log.warning(

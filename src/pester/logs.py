@@ -52,3 +52,7 @@ def configure_logging(level: str = "INFO", fmt: Literal["text", "json"] = "text"
         uvicorn_logger = logging.getLogger(name)
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
+    # HTTP clients log every request URL at INFO. Telegram's Bot API puts the bot token in the URL, so these
+    # stay at WARNING: secrets never reach the logs.
+    for name in ("httpx", "httpcore", "httpx2"):
+        logging.getLogger(name).setLevel(logging.WARNING)

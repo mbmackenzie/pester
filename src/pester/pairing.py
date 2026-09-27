@@ -29,6 +29,7 @@ class Pairing:
     address: str
     recipient_config: dict[str, Any]
     first_text: str | None
+    sender_name: str | None
     status: PairingStatus
     recipient_id: str | None
     created_at: datetime
@@ -60,7 +61,12 @@ class PairingStore:
     # ---- Requests -------------------------------------------------------------------------------------
 
     async def request(
-        self, channel: str, address: str, recipient_config: dict[str, Any], text: str | None
+        self,
+        channel: str,
+        address: str,
+        recipient_config: dict[str, Any],
+        text: str | None,
+        sender_name: str | None = None,
     ) -> tuple[Pairing | None, bool]:
         """Record a request from an unknown address. Returns (pairing, created).
 
@@ -82,8 +88,8 @@ class PairingStore:
                 # Approved, yet unknown again: the recipient was removed since. Ask again.
                 await conn.execute(
                     "UPDATE pairings SET status = ?, recipient_id = NULL, welcomed_at = NULL, "
-                    "first_text = ?, recipient_config = ?, updated_at = ? WHERE pk = ?",
-                    (PairingStatus.PENDING, text, json.dumps(recipient_config), now, row["pk"]),
+                    "first_text = ?, recipient_config = ?, sender_name = ?, updated_at = ? WHERE pk = ?",
+                    (PairingStatus.PENDING, text, json.dumps(recipient_config), sender_name, now, row["pk"]),
                 )
                 pk = row["pk"]
             else:
@@ -96,9 +102,18 @@ class PairingStore:
                     return None, False
                 cursor = await conn.execute(
                     "INSERT INTO pairings "
-                    "(channel, address, recipient_config, first_text, status, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (channel, address, json.dumps(recipient_config), text, PairingStatus.PENDING, now, now),
+                    "(channel, address, recipient_config, first_text, sender_name, status, created_at, "
+                    "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        channel,
+                        address,
+                        json.dumps(recipient_config),
+                        text,
+                        sender_name,
+                        PairingStatus.PENDING,
+                        now,
+                        now,
+                    ),
                 )
                 pk = cursor.lastrowid
             rows = list(await conn.execute_fetchall("SELECT * FROM pairings WHERE pk = ?", (pk,)))
@@ -223,6 +238,7 @@ def _pairing(row: Any) -> Pairing:
         address=row["address"],
         recipient_config=json.loads(row["recipient_config"]),
         first_text=row["first_text"],
+        sender_name=row["sender_name"],
         status=PairingStatus(row["status"]),
         recipient_id=row["recipient_id"],
         created_at=from_db(row["created_at"]),

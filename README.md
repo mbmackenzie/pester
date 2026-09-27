@@ -12,6 +12,7 @@ Pester is domain-agnostic. It doesn't know about quizzes, habits, or reminders; 
 
 - **Spec:** [docs/spec.md](docs/spec.md)
 - **Deploying:** [docs/deploy.md](docs/deploy.md) (Docker Compose / Dockge, LAN-only)
+- **Telegram:** [docs/telegram.md](docs/telegram.md) (create a bot and connect it)
 - **Roadmap:** milestone issues M0–M8 on GitHub
 
 Status: pre-alpha. The full loop runs locally on a built-in mock channel, with LLM grading, pluggable personalities and channels, realistic pacing, crash recovery, config in the database with live changes, pairing, and a LAN-only admin UI at `/admin` (design: [docs/admin-ui.md](docs/admin-ui.md)).
