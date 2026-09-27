@@ -5,6 +5,11 @@
 {% block content %}
 {{ page_header('Personalities', 'Give prompts and feedback a voice. Evaluation stays the same.', '#new-personality', 'Add a personality') }}
 
+{% if needs_key %}
+<p class="error">{{ needs_key | join(", ") }} {{ "uses" if needs_key | length == 1 else "use" }} an LLM, but no LLM API key
+is set, so {{ "it falls" if needs_key | length == 1 else "they fall" }} back to plain text. Add a key under
+<a href="/admin/settings">Settings</a>.</p>
+{% endif %}
 <section class="card flush">
 <table>
   <thead><tr><th>Id</th><th>Type</th><th>Description</th><th><span class="sr-only">Actions</span></th></tr></thead>

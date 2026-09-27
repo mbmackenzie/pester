@@ -7,13 +7,39 @@
     <span class="muted">{{ result.evaluator }}{% if result.model %} · {{ result.model }}{% endif %}
     {% if result.latency_ms is not none %} · {{ "%.1f" | format(result.latency_ms / 1000) }} s{% endif %}
     {% if result.usage and result.usage.total_tokens %} · {{ result.usage.total_tokens }} tokens{% endif %}</span></p>
+  {% if result.personality_fallback %}
+  <p class="error">The <strong>{{ result.personality }}</strong> personality didn't work, so the plain text was used
+    instead{% if result.personality_error %}: {{ result.personality_error }}{% endif %}</p>
+  {% endif %}
   <div class="bubble theirs">{{ result.prompt }}</div>
   {% if result.error %}<p class="error">{{ result.error }}</p>{% endif %}
-  {% if result.feedback %}
-    <div class="bubble theirs">{{ result.feedback }}</div>
-    {% if result.personality_fallback %}<p class="note">The personality failed, so the neutral feedback was used.</p>{% endif %}
-  {% endif %}
+  {% if result.feedback %}<div class="bubble theirs">{{ result.feedback }}</div>{% endif %}
   {% if result.feedback_facts %}<p><span class="muted">Facts from the evaluator:</span> {{ result.feedback_facts }}</p>{% endif %}
   {% if result.result %}<details><summary>Result</summary><pre>{{ result.result | pretty_json }}</pre></details>{% endif %}
+
+  <h3 class="spaced">What was sent to the LLM</h3>
+  {% for call in result.llm_calls %}
+  <details class="llm-call" {{ 'open' if call.purpose.startswith('personality') }}>
+    <summary>
+      <strong>{{ call.purpose }}</strong>
+      <span class="muted">· {{ call.request.model }}
+        {% if call.latency_ms is not none %}· {{ "%.1f" | format(call.latency_ms / 1000) }} s{% endif %}
+        {% if call.usage %}· {{ call.usage.input_tokens }} in / {{ call.usage.output_tokens }} out{% endif %}
+        {% if call.request.temperature is defined %}· temperature {{ call.request.temperature }}{% endif %}</span>
+      {% if call.error %}<span class="status status-failed">FAILED</span>{% endif %}
+    </summary>
+    {% for m in call.request.messages %}
+      <p class="small muted" style="margin-bottom: 0.2rem">{{ m.role }}</p>
+      <pre>{{ m.content }}</pre>
+    {% endfor %}
+    {% if call.request.response_format %}
+      <details><summary>Output format</summary><pre>{{ call.request.response_format | pretty_json }}</pre></details>
+    {% endif %}
+    {% if call.error %}<p class="error">{{ call.error }}</p>
+    {% else %}<p class="small muted" style="margin-bottom: 0.2rem">reply</p><pre>{{ call.reply }}</pre>{% endif %}
+  </details>
+  {% else %}
+  <p class="muted">Nothing: this evaluator and personality don't use an LLM{% if result.personality_fallback %}, or couldn't reach one{% endif %}.</p>
+  {% endfor %}
 </div>
 {% endif %}

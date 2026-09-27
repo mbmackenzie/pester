@@ -67,7 +67,7 @@ class LLMPersonality:
         self._temperature = temperature
 
     async def render_prompt(self, ctx: PromptContext) -> str:
-        return await self._complete(PROMPT_RULES, f"Question: {ctx.job.prompt}")
+        return await self._complete(PROMPT_RULES, f"Question: {ctx.job.prompt}", "personality: question")
 
     async def render_feedback(self, ctx: FeedbackContext) -> str:
         details = (
@@ -75,16 +75,17 @@ class LLMPersonality:
             f"Their reply: {ctx.response.text}\n"
             f"Facts to convey: {ctx.feedback_facts}"
         )
-        return await self._complete(FEEDBACK_RULES, details)
+        return await self._complete(FEEDBACK_RULES, details, "personality: feedback")
 
-    async def _complete(self, rules: str, user_text: str) -> str:
+    async def _complete(self, rules: str, user_text: str, purpose: str) -> str:
         if self._client is None:
-            raise PersonalityUnavailableError("LLM personalities need OPENAI_API_KEY")
+            raise PersonalityUnavailableError("no LLM API key is set (add one under Settings)")
         completion = await chat(
             self._client,
             model=self._model,
             messages=[system(f"{self.persona.strip()}\n\n{rules}"), user(user_text)],
             temperature=self._temperature,
+            purpose=purpose,
         )
         text = (first_text(completion) or "").strip()
         if not text:

@@ -3,7 +3,7 @@
 from typing import Any, Literal, Self
 
 from fastapi import APIRouter
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pester.api.deps import PreviewPrincipal, StateDep
 from pester.api.jobs import check_submission
@@ -11,6 +11,7 @@ from pester.core.ids import new_id
 from pester.core.models import HumanResponse, InteractionJob
 from pester.evaluation.base import EvaluationFailedError
 from pester.evaluation.pipeline import assess
+from pester.llm import LLMCall, capture_calls
 from pester.personality.base import PromptContext
 from pester.state import AppState
 
@@ -46,11 +47,15 @@ class PreviewResult(BaseModel):
     feedback_facts: str | None = None
     feedback: str | None = None  # as it would be delivered
     personality_fallback: bool | None = None
+    personality_error: str | None = None  # why the personality fell back to the neutral text
     model: str | None = None
     usage: dict[str, int] | None = None
     latency_ms: int | None = None
     attempts: int | None = None
     error: str | None = None
+    # Every LLM call the preview made, with its exact request: for the admin UI, not returned by the API
+    # (it includes the deployer's personality prompts).
+    llm_calls: list[LLMCall] = Field(default_factory=list[LLMCall], exclude=True)
 
 
 @router.post("/api/v1/jobs:preview")
@@ -62,10 +67,18 @@ async def preview_job(body: PreviewRequest, principal: PreviewPrincipal, state: 
 
 async def run_preview(state: AppState, job: InteractionJob, sample: SampleResponse) -> PreviewResult:
     """Evaluate ``sample`` as a reply to ``job`` and voice the feedback, storing and sending nothing."""
+    with capture_calls() as calls:
+        result = await _preview(state, job, sample)
+    return result.model_copy(update={"llm_calls": calls})
+
+
+async def _preview(state: AppState, job: InteractionJob, sample: SampleResponse) -> PreviewResult:
     personality = state.personalities.resolve(job.personality_id)
     prompt = job.prompt
+    prompt_error = None
     if job.delivery.prompt_rendering == "personality":
-        prompt = (await personality.prompt(PromptContext(job))).text
+        rendered = await personality.prompt(PromptContext(job))
+        prompt, prompt_error = rendered.text, rendered.error
 
     response = HumanResponse(
         interaction_id=job.id or "preview",
@@ -86,6 +99,7 @@ async def run_preview(state: AppState, job: InteractionJob, sample: SampleRespon
             evaluator=exc.evaluator,
             attempts=exc.attempts,
             error=exc.error,
+            personality_error=prompt_error,
         )
     outcome = assessment.outcome
     return PreviewResult(
@@ -96,7 +110,8 @@ async def run_preview(state: AppState, job: InteractionJob, sample: SampleRespon
         result=outcome.result,
         feedback_facts=outcome.feedback_facts,
         feedback=assessment.feedback.text,
-        personality_fallback=assessment.feedback.fallback,
+        personality_fallback=assessment.feedback.fallback or prompt_error is not None,
+        personality_error=assessment.feedback.error or prompt_error,
         model=outcome.model,
         usage=outcome.usage,
         latency_ms=outcome.latency_ms,

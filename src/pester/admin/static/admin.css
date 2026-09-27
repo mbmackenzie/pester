@@ -286,3 +286,6 @@ section.card > h3 + p { margin-top: 0; }
 
 td code { white-space: nowrap; }
 details.advanced > summary { margin-bottom: 0.75rem; }
+details.llm-call { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; margin-top: 0.5rem; }
+details.llm-call > summary { color: var(--text); }
+details.llm-call pre { max-height: 22rem; overflow-y: auto; }

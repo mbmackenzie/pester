@@ -608,6 +608,9 @@ async def personalities(request: Request, admin: AdminDep) -> Response:
         default_id=state.config.default_personality,
         registered=[p.id for p in state.personalities.all()],
         evaluators=state.evaluators.names(),
+        needs_key=[pid for pid, p in state.config.personalities.items() if p.type == "llm"]
+        if state.live.current.llm_client is None
+        else [],
         types=sorted(BUILTINS),
     )
 
