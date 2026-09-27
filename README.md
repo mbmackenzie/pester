@@ -11,7 +11,8 @@ Jobs in. Humans bothered. Responses evaluated. Events out.
 Pester is domain-agnostic. It doesn't know about quizzes, habits, or reminders; that meaning belongs to producers.
 
 - **Spec:** [docs/spec.md](docs/spec.md)
-- **Deploying:** [docs/deploy.md](docs/deploy.md) (Docker Compose / Dockge, LAN-only)
+- **Deploying:** [docs/deploy.md](docs/deploy.md) (Docker Compose / Dockge, LAN-only; image
+  `ghcr.io/mbmackenzie/pester`)
 - **Telegram:** [docs/telegram.md](docs/telegram.md) (create a bot and connect it)
 - **Roadmap:** milestone issues M0–M8 on GitHub
 

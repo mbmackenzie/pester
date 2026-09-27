@@ -28,6 +28,7 @@ from pester.service import AdminService
 from pester.state import AppState
 from pester.storage.db import Database
 from pester.storage.repository import Repository
+from pester.version import VERSION
 
 log = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ def create_app(
             await runtime.stop_channels()
             await db.close()
 
-    app = FastAPI(title="Pester", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Pester", version=VERSION, lifespan=lifespan)
     app.state.pester = state
     for module in (health, jobs, batches, events, preview, personalities):
         app.include_router(module.router)

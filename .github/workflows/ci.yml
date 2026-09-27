@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_call:  # the publish workflow runs this before building an image
 
 jobs:
   check:

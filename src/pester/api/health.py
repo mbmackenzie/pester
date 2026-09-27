@@ -6,6 +6,7 @@ from pester.api.deps import RepoDep, RuntimeDep, StateDep
 from pester.runtime import Runtime
 from pester.state import AppState
 from pester.storage.repository import Repository
+from pester.version import VERSION
 
 router = APIRouter()
 
@@ -13,7 +14,7 @@ router = APIRouter()
 @router.get("/health")
 async def health() -> dict[str, str]:
     """Liveness: the process is up and serving. Used by the container health check."""
-    return {"status": "ok"}
+    return {"status": "ok", "version": VERSION}
 
 
 @router.get("/ready")

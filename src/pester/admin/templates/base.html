@@ -36,7 +36,7 @@
     {% endfor %}
     </nav>
     <div class="sidebar-footer">
-      <span class="server-label">{{ icon("server") }} Home server <span class="muted">/ Admin</span></span>
+      <span class="server-label">{{ icon("server") }} Home server <span class="muted">/ Admin · v{{ version }}</span></span>
       <form method="post" action="/admin/logout">
         <input type="hidden" name="csrf" value="{{ admin.csrf_token }}">
         <button class="link">Sign out {{ icon("logout") }}</button>
