@@ -62,7 +62,7 @@ class Runtime:
             self.channels,
             clock,
             self.pairing.handle_unknown if self.pairing else None,
-            send_now=self.scheduler.send_now,
+            scheduler=self.scheduler,
         )
         self.delivery = DeliveryWorker(repo, self.channels, clock, live)
         self.evaluation = EvaluationWorker(repo, live, clock)

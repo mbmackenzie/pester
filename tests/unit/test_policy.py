@@ -289,3 +289,52 @@ def test_earliest_send_is_never_in_the_past_or_in_quiet_hours(
         t = earliest_send(now, job, state, policy)
         assert t >= now
         assert state.quiet is None or not state.quiet.contains(t.astimezone(state.tz).time())
+
+
+# ---- send_time and next_send: what /status reports -----------------------------------------------------
+
+
+def test_send_time_names_what_holds_a_job() -> None:
+    from pester.scheduler.policy import Hold, send_time
+
+    tz = ZoneInfo("America/New_York")
+    now = datetime(2026, 9, 25, 23, 0, tzinfo=tz)
+    job = Candidate(key=1, recipient_id="kate", priority=0.5, created_at=now)
+    quiet = RecipientState(tz=tz, quiet=QuietWindow(time(21, 0), time(8, 30)))
+    at, holds = send_time(now, job, quiet, Policy())
+    assert holds == {Hold.QUIET_HOURS}
+    assert at == datetime(2026, 9, 26, 8, 30, tzinfo=tz)
+
+    free = RecipientState(tz=tz)
+    assert send_time(now, job, free, Policy()) == (now, frozenset())
+
+    spaced = RecipientState(tz=tz, recent_prompts=(now - timedelta(minutes=30),))
+    at, holds = send_time(now, job, spaced, Policy(min_interval=timedelta(hours=2)))
+    assert holds == {Hold.SPACING} and at == now + timedelta(minutes=90)
+
+    snoozed = Candidate(
+        key=2, recipient_id="kate", priority=0.5, created_at=now, snoozed_until=now + timedelta(hours=1)
+    )
+    assert send_time(now, snoozed, free, Policy())[1] == {Hold.SNOOZED}
+
+
+def test_next_send_matches_what_decide_would_do() -> None:
+    from pester.scheduler.policy import next_send
+
+    tz = ZoneInfo("UTC")
+    now = datetime(2026, 9, 25, 12, 0, tzinfo=tz)
+    low = Candidate(key=1, recipient_id="kate", priority=0.1, created_at=now)
+    high = Candidate(key=2, recipient_id="kate", priority=0.9, created_at=now)
+    later = Candidate(
+        key=3, recipient_id="kate", priority=1.0, created_at=now, not_before=now + timedelta(hours=1)
+    )
+    expired = Candidate(key=4, recipient_id="kate", priority=1.0, created_at=now, expires_at=now)
+    state = RecipientState(tz=tz)
+
+    upcoming = next_send(now, [low, high, later, expired], state, Policy())
+    assert upcoming is not None and upcoming.key == 2  # due now, and the higher priority of the two due
+    assert decide(now, [low, high, later, expired], {"kate": state}, Policy()).send == [2]
+
+    busy = next_send(now, [low], RecipientState(tz=tz, outstanding=1), Policy())
+    assert busy is not None and busy.waiting_on_answer
+    assert next_send(now, [expired], state, Policy()) is None

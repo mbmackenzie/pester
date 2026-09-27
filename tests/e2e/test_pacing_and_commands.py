@@ -98,7 +98,7 @@ async def test_snooze(loop: Loop) -> None:
 
     await loop.chat.inject("kate", "/snooze 2h")
     await loop.settle()
-    assert loop.seen()[-2].text == "Snoozed until 14:00."  # the recipient's local time
+    assert loop.seen()[-2].text == "Snoozed until 2:00 PM."  # the recipient's local time
     assert await loop.status(snoozed) == "QUEUED"
     snooze_event = (await loop.events(snoozed))[-1]
     assert snooze_event["type"] == "INTERACTION_SNOOZED"
@@ -132,12 +132,20 @@ async def test_snooze_rejects_bad_durations(loop: Loop, command: str, reply: str
     assert await loop.status(job_id) == "AWAITING"
 
 
-async def test_snooze_defaults_to_an_hour_and_shows_weekday_if_not_today(loop: Loop) -> None:
+async def test_snooze_defaults_to_an_hour_and_says_tomorrow(loop: Loop) -> None:
     loop.clock.set(ny(23, 30))
     await loop.submit()
     await loop.settle()
     await loop.chat.inject("kate", "/snooze")
-    assert loop.last_seen().text == "Snoozed until Sat 00:30."
+    assert loop.last_seen().text == "Snoozed until tomorrow 12:30 AM."
+
+
+async def test_snooze_further_ahead_shows_the_weekday(loop: Loop) -> None:
+    loop.clock.set(ny(9))
+    await loop.submit()
+    await loop.settle()
+    await loop.chat.inject("kate", "/snooze 2d")
+    assert loop.last_seen().text == "Snoozed until Sun 9:00 AM."
 
 
 async def test_pause_and_resume(loop: Loop) -> None:
@@ -164,9 +172,9 @@ async def test_status(loop: Loop) -> None:
     await loop.chat.inject("kate", "/pause")
     await loop.chat.inject("kate", "/status")
     assert loop.last_seen().text == (
-        "Paused (send /resume to start again).\n"
-        'Waiting on your answer: "What is the capital of Assyria?" (asked 09:05).\n'
-        "2 more queued."
+        "Paused: send /resume to start again, or /send for one now.\n"
+        'Waiting on your answer: "What is the capital of Assyria?" (asked 9:05 AM).\n'
+        "2 more questions queued."
     )
 
 

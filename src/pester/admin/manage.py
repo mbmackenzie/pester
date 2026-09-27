@@ -48,6 +48,7 @@ from pester.delivery.adapters import (
     secret_fields,
     secret_source,
 )
+from pester.delivery.commands import describe_next
 from pester.evaluation.llm import LLMEvaluator
 from pester.llm import chat, first_text, user
 from pester.personality.registry import BUILTIN_OPTIONS, BUILTINS
@@ -219,10 +220,16 @@ async def _recipients_page(
     request: Request, admin: Admin, status_code: int = 200, error: str | None = None, form: Any = None
 ) -> Response:
     state, repo, service = app_state(request), repo_of(request), service_of(request)
+    scheduler, now = runtime_of(request).scheduler, state.clock.now()
     rows = [
         (recipient_id, recipient, await repo.recipient_status(recipient_id))
         for recipient_id, recipient in sorted(state.config.recipients.items())
     ]
+    next_up = {
+        recipient_id: describe_next(state.config, recipient_id, await scheduler.next_send(recipient_id), now)
+        for recipient_id, _, status_ in rows
+        if status_.queued
+    }
     pending = await service.pending_pairings()
     return await render(
         request,
@@ -230,6 +237,7 @@ async def _recipients_page(
         admin,
         status_code,
         recipients=rows,
+        next_up=next_up,
         pending=[(p, suggested_id(_name_part(p.sender_name) or p.address)) for p in pending],
         invites=await service.invites(),
         clients=sorted(state.config.clients),

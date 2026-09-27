@@ -12,8 +12,17 @@ from pester.delivery.base import DeliveryChannel
 from pester.live import LiveConfig
 from pester.personality.base import PromptContext
 from pester.personality.registry import PersonalityRegistry
-from pester.scheduler.policy import Candidate, Policy, QuietWindow, RecipientState, decide, seeded_jitter
-from pester.storage.repository import Repository
+from pester.scheduler.policy import (
+    Candidate,
+    NextSend,
+    Policy,
+    QuietWindow,
+    RecipientState,
+    decide,
+    next_send,
+    seeded_jitter,
+)
+from pester.storage.repository import Repository, SchedulingSnapshot
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +89,21 @@ class SchedulerWorker:
                 return SendNowResult(SendNowOutcome.SENT, job)
         return SendNowResult(SendNowOutcome.NOTHING)
 
+    async def next_send(self, recipient_id: str) -> NextSend | None:
+        """When the recipient's next question goes out, and what's holding it (for /status and the UI)."""
+        config = self._live.current.config
+        now = self._clock.now()
+        snapshot = await self._repo.scheduling_snapshot(now - _PROMPT_HISTORY)
+        state = _recipient_state(config, recipient_id, snapshot)
+        if state is None:
+            return None
+        pending = [
+            _candidate(job)
+            for job in snapshot.queued
+            if job.spec.recipient_id == recipient_id and self._route(config, job) is not None
+        ]
+        return next_send(now, pending, state, _policy(config.scheduler))
+
     async def _time_out_unanswered(self, config: PesterConfig) -> int:
         now = self._clock.now()
         default = config.scheduler.default_answer_within_seconds
@@ -105,31 +129,12 @@ class SchedulerWorker:
                 continue  # no enabled channel; leave queued until one is configured
             if route is not None:
                 routable[job.pk] = (job, *route)
-            candidates.append(
-                Candidate(
-                    key=job.pk,
-                    recipient_id=job.spec.recipient_id,
-                    priority=job.spec.delivery.priority,
-                    created_at=job.created_at,
-                    not_before=job.spec.delivery.not_before,
-                    expires_at=expires_at,
-                    snoozed_until=job.snoozed_until,
-                )
-            )
+            candidates.append(_candidate(job))
 
         recipients: dict[str, RecipientState] = {}
         for recipient_id in {c.recipient_id for c in candidates}:
-            recipient = config.recipients.get(recipient_id)
-            if recipient is None:
-                continue
-            quiet = recipient.quiet_hours or config.scheduler.quiet_hours
-            recipients[recipient_id] = RecipientState(
-                tz=recipient.tz,
-                quiet=_window(quiet),
-                outstanding=snapshot.outstanding.get(recipient_id, 0),
-                recent_prompts=tuple(snapshot.recent_prompts.get(recipient_id, ())),
-                paused=recipient_id in snapshot.paused,
-            )
+            if (state := _recipient_state(config, recipient_id, snapshot)) is not None:
+                recipients[recipient_id] = state
 
         plan = decide(now, candidates, recipients, _policy(config.scheduler))
         done = 0
@@ -167,6 +172,33 @@ async def _prompt_text(job: JobRecord, personalities: PersonalityRegistry) -> st
         return job.spec.prompt
     personality = personalities.resolve(job.spec.personality_id)
     return (await personality.prompt(PromptContext(job.spec))).text
+
+
+def _candidate(job: JobRecord) -> Candidate:
+    return Candidate(
+        key=job.pk,
+        recipient_id=job.spec.recipient_id,
+        priority=job.spec.delivery.priority,
+        created_at=job.created_at,
+        not_before=job.spec.delivery.not_before,
+        expires_at=job.spec.delivery.expires_at,
+        snoozed_until=job.snoozed_until,
+    )
+
+
+def _recipient_state(
+    config: PesterConfig, recipient_id: str, snapshot: SchedulingSnapshot
+) -> RecipientState | None:
+    recipient = config.recipients.get(recipient_id)
+    if recipient is None:
+        return None
+    return RecipientState(
+        tz=recipient.tz,
+        quiet=_window(recipient.quiet_hours or config.scheduler.quiet_hours),
+        outstanding=snapshot.outstanding.get(recipient_id, 0),
+        recent_prompts=tuple(snapshot.recent_prompts.get(recipient_id, ())),
+        paused=recipient_id in snapshot.paused,
+    )
 
 
 def _policy(scheduler: SchedulerConfig) -> Policy:

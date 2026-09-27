@@ -7,8 +7,9 @@ from datetime import timedelta
 from pester.core.clock import Clock
 from pester.core.messages import InboundMessage, OutboundMessage
 from pester.delivery.base import DeliveryChannel
-from pester.delivery.commands import CommandHandler, SendNow
+from pester.delivery.commands import CommandHandler
 from pester.live import LiveConfig
+from pester.scheduler.worker import SchedulerWorker
 from pester.storage.repository import IngestOutcome, Repository
 
 log = logging.getLogger(__name__)
@@ -29,12 +30,12 @@ class ResponseRouter:
         channels: Mapping[str, DeliveryChannel],
         clock: Clock,
         on_unknown: Callable[[InboundMessage], Awaitable[None]] | None = None,
-        send_now: SendNow | None = None,
+        scheduler: SchedulerWorker | None = None,
     ) -> None:
         self._repo = repo
         self._live = live
         self._channels = channels
-        self._commands = CommandHandler(repo, live, clock, send_now)
+        self._commands = CommandHandler(repo, live, clock, scheduler)
         self._on_unknown = on_unknown
 
     def recipient_for(self, channel: str, address: str) -> str | None:
