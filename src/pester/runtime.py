@@ -55,10 +55,15 @@ class Runtime:
         self.manager = manager
         self.channels = manager.channels  # updated in place as channels start and stop
         self.pairing = PairingDesk(pairings, service, manager, live) if pairings and service else None
-        self.router = ResponseRouter(
-            repo, live, self.channels, clock, self.pairing.handle_unknown if self.pairing else None
-        )
         self.scheduler = SchedulerWorker(repo, live, self.channels, clock)
+        self.router = ResponseRouter(
+            repo,
+            live,
+            self.channels,
+            clock,
+            self.pairing.handle_unknown if self.pairing else None,
+            send_now=self.scheduler.send_now,
+        )
         self.delivery = DeliveryWorker(repo, self.channels, clock, live)
         self.evaluation = EvaluationWorker(repo, live, clock)
         self._steps: dict[str, Callable[[], Awaitable[int]]] = {

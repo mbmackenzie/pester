@@ -1,6 +1,8 @@
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import timedelta
+from enum import StrEnum
 
 from pester.config import PesterConfig, QuietHours, SchedulerConfig
 from pester.core.clock import Clock
@@ -17,6 +19,18 @@ log = logging.getLogger(__name__)
 
 # Long enough to cover a recipient's whole local day in any timezone, for daily caps.
 _PROMPT_HISTORY = timedelta(hours=50)
+
+
+class SendNowOutcome(StrEnum):
+    SENT = "SENT"
+    OUTSTANDING = "OUTSTANDING"  # they already have a question open
+    NOTHING = "NOTHING"  # nothing queued that may be sent now
+
+
+@dataclass(frozen=True)
+class SendNowResult:
+    outcome: SendNowOutcome
+    job: JobRecord | None = None
 
 
 class SchedulerWorker:
@@ -38,6 +52,33 @@ class SchedulerWorker:
         return await self._time_out_unanswered(snapshot.config) + await self._schedule(
             snapshot.config, snapshot.personalities
         )
+
+    async def send_now(self, recipient_id: str, prefer_channel: str | None = None) -> SendNowResult:
+        """Claim the recipient's next question now, skipping pacing (quiet hours, spacing, jitter, daily cap).
+
+        For a person asking for one (``/send``). It still honors the producer's ``not_before`` and
+        ``expires_at`` and never sends while another question is outstanding. The send counts toward pacing
+        like any other.
+        """
+        if (open_job := await self._repo.outstanding_for(recipient_id)) is not None:
+            return SendNowResult(SendNowOutcome.OUTSTANDING, open_job)
+        snapshot = self._live.current
+        now = self._clock.now()
+        for job in await self._repo.queued_for(recipient_id):
+            delivery = job.spec.delivery
+            if (delivery.expires_at and delivery.expires_at <= now) or (
+                delivery.not_before and delivery.not_before > now
+            ):
+                continue
+            route = self._route(snapshot.config, job, prefer_channel)
+            if route is None:
+                continue
+            text = await _prompt_text(job, snapshot.personalities)
+            message = OutboundMessage(text=text, options=job.spec.response_options)
+            if await self._repo.claim_for_send(job.pk, *route, message):
+                log.info("sending on request", extra={"interaction_id": job.id, "recipient_id": recipient_id})
+                return SendNowResult(SendNowOutcome.SENT, job)
+        return SendNowResult(SendNowOutcome.NOTHING)
 
     async def _time_out_unanswered(self, config: PesterConfig) -> int:
         now = self._clock.now()
@@ -101,12 +142,17 @@ class SchedulerWorker:
             done += await self._repo.claim_for_send(key, channel, address, message)
         return done
 
-    def _route(self, config: PesterConfig, job: JobRecord) -> tuple[str, str] | None:
-        """(channel, address) for a job: its requested channel, else the recipient's first enabled one."""
+    def _route(
+        self, config: PesterConfig, job: JobRecord, prefer: str | None = None
+    ) -> tuple[str, str] | None:
+        """(channel, address): the job's requested channel, else ``prefer``, else the recipient's first."""
         recipient = config.recipients.get(job.spec.recipient_id)
         if recipient is None:
             return None
         names = [job.spec.delivery.channel] if job.spec.delivery.channel else list(recipient.channels)
+        if prefer in names:
+            names.remove(prefer)
+            names.insert(0, prefer)
         for name in names:
             if name in self._channels and name in recipient.channels:
                 try:

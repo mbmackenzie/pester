@@ -38,7 +38,7 @@
 <section class="phone">
   {% include "partials/chat_log.html" %}
   <div class="commands">
-    {% for c in ["/status", "/skip", "/snooze 2h", "/pause", "/resume"] %}
+    {% for c in ["/send", "/status", "/skip", "/snooze 2h", "/pause", "/resume"] %}
       <button type="button" class="chip" data-command="{{ c }}">{{ c }}</button>
     {% endfor %}
   </div>

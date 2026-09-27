@@ -38,7 +38,7 @@ curl -H "Authorization: Bearer <token>" -H 'content-type: application/json' \
   -d '{"recipient_id":"kate","prompt":"Did you water the plants?","response_options":["Yes","No"],"evaluation":{"prompt":"YES/NO"}}' \
   localhost:8000/api/v1/jobs
 
-# be kate (try /status, /skip, /snooze 2h, /pause, /resume): open http://localhost:8000/admin (the setup
+# be kate (try /send, /status, /skip, /snooze 2h, /pause, /resume): open http://localhost:8000/admin (the setup
 # code is in the server log) and use the Messenger page, or chat from a terminal:
 uv run pester chat kate
 

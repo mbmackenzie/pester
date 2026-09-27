@@ -14,7 +14,7 @@ ASKED = "Hi! I've asked the admin to approve you. You'll hear from me here once 
 BAD_CODE = "That invite code isn't valid. It may have been used already or expired."
 WELCOME = (
     "You're all set! I'll send you questions here. Reply to answer them.\n"
-    "Commands: /status, /skip, /snooze 2h, /pause, /resume"
+    "Commands: /send (a question now), /status, /skip, /snooze 2h, /pause, /resume"
 )
 
 

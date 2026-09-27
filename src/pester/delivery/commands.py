@@ -1,5 +1,6 @@
-"""Recipient commands (spec §9.3). Each returns the text to send back to the person."""
+"""Recipient commands (spec §9.3). Each returns the text to send back to the person, or None for no reply."""
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -8,27 +9,35 @@ from pester.core.clock import Clock
 from pester.core.durations import parse_duration
 from pester.core.messages import InboundMessage
 from pester.core.models import JobRecord
+from pester.core.states import JobStatus
 from pester.live import LiveConfig
+from pester.scheduler.worker import SendNowOutcome, SendNowResult
 from pester.storage.repository import IngestOutcome, Repository
 
-HELP = "Commands: /skip, /snooze 2h, /pause, /resume, /status"
+HELP = "Commands: /send, /skip, /snooze 2h, /pause, /resume, /status"
+SendNow = Callable[[str, str], Awaitable[SendNowResult]]
 DEFAULT_SNOOZE = timedelta(hours=1)
 
 
 class CommandHandler:
-    def __init__(self, repo: Repository, live: LiveConfig, clock: Clock) -> None:
+    def __init__(
+        self, repo: Repository, live: LiveConfig, clock: Clock, send_now: SendNow | None = None
+    ) -> None:
         self._repo = repo
         self._live = live
         self._clock = clock
+        self._send_now = send_now
 
     @property
     def _config(self) -> PesterConfig:
         return self._live.current.config
 
-    async def handle(self, recipient_id: str, message: InboundMessage) -> str:
+    async def handle(self, recipient_id: str, message: InboundMessage) -> str | None:
         assert message.command is not None
         name, args = message.command.name, message.command.args
         match name:
+            case "send" if self._send_now is not None:
+                return await self._send(recipient_id, message)
             case "skip":
                 return await self._skip(recipient_id, message)
             case "snooze":
@@ -45,6 +54,27 @@ class CommandHandler:
                 return f"You're already set up. {HELP}"
             case _:
                 return HELP
+
+    async def _send(self, recipient_id: str, message: InboundMessage) -> str | None:
+        assert self._send_now is not None
+        result = await self._send_now(recipient_id, message.channel)
+        match result.outcome:
+            case SendNowOutcome.SENT:
+                if (await self._repo.recipient_status(recipient_id)).paused:
+                    return (
+                        "Here's one. You're still paused, so I won't send more on my own until you /resume."
+                    )
+                return None  # the question itself is the reply
+            case SendNowOutcome.OUTSTANDING:
+                assert result.job is not None
+                if result.job.status is JobStatus.AWAITING:
+                    return (
+                        f'You still have an open question: "{_excerpt(result.job)}". '
+                        "Answer it, /skip it, or /snooze it first."
+                    )
+                return "One is already on its way."
+            case SendNowOutcome.NOTHING:
+                return "Nothing is queued for you right now."
 
     async def _skip(self, recipient_id: str, message: InboundMessage) -> str:
         target = await self._repo.command_target(recipient_id, message)
