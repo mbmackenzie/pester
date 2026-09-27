@@ -3,7 +3,7 @@
 {% block title %}Settings{% endblock %}
 {% block content %}
 <h1>Settings</h1>
-{{ readonly_note() }}
+{{ readonly_note("pester settings set scheduler.max_messages_per_day=6") }}
 <div class="columns">
 <section class="card">
   <h3>Pacing</h3>
@@ -20,7 +20,7 @@
 <section class="card">
   <h3>LLM</h3>
   <dl>
-    <dt>API key</dt><dd>{% if llm_key_set %}<span class="dot ok"></span> set by environment{% else %}<span class="dot idle"></span> not set: <code>llm</code> evaluations are echoed back{% endif %}</dd>
+    <dt>API key</dt><dd>{% if llm_key_source %}<span class="dot ok"></span> set ({{ "by the OPENAI_API_KEY environment variable" if llm_key_source == "environment" else "in the database" if llm_key_source == "database" else llm_key_source }}){% else %}<span class="dot idle"></span> not set. Without a key, <code>llm</code> evaluations are unavailable (echoed back in dev mode). Set one with <code>pester llm key</code>.{% endif %}</dd>
     <dt>Model</dt><dd><code>{{ llm.model }}</code></dd>
     <dt>Endpoint</dt><dd>{{ llm.base_url or "OpenAI" }}</dd>
     <dt>Output</dt><dd>{{ llm.response_format }}, up to {{ llm.max_attempts }} attempts</dd>

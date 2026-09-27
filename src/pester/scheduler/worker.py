@@ -2,11 +2,12 @@ import logging
 from collections.abc import Mapping
 from datetime import timedelta
 
-from pester.config import PesterConfig, QuietHours
+from pester.config import PesterConfig, QuietHours, SchedulerConfig
 from pester.core.clock import Clock
 from pester.core.messages import OutboundMessage
 from pester.core.models import JobRecord
 from pester.delivery.base import DeliveryChannel
+from pester.live import LiveConfig
 from pester.personality.base import PromptContext
 from pester.personality.registry import PersonalityRegistry
 from pester.scheduler.policy import Candidate, Policy, QuietWindow, RecipientState, decide, seeded_jitter
@@ -22,31 +23,25 @@ class SchedulerWorker:
     def __init__(
         self,
         repo: Repository,
-        config: PesterConfig,
+        live: LiveConfig,
         channels: Mapping[str, DeliveryChannel],
         clock: Clock,
-        personalities: PersonalityRegistry,
     ) -> None:
         self._repo = repo
-        self._config = config
+        self._live = live
         self._channels = channels
         self._clock = clock
-        self._personalities = personalities
-        scheduler = config.scheduler
-        self._policy = Policy(
-            max_outstanding=scheduler.max_outstanding,
-            min_interval=timedelta(minutes=scheduler.min_interval_minutes),
-            max_per_day=scheduler.max_messages_per_day,
-            jitter=seeded_jitter(scheduler.jitter_seed, scheduler.jitter_minutes),
-        )
 
     async def run_once(self) -> int:
         """One pass: time out unanswered prompts, expire stale jobs, claim jobs that may be sent now."""
-        return await self._time_out_unanswered() + await self._schedule()
+        snapshot = self._live.current  # one config for the whole pass
+        return await self._time_out_unanswered(snapshot.config) + await self._schedule(
+            snapshot.config, snapshot.personalities
+        )
 
-    async def _time_out_unanswered(self) -> int:
+    async def _time_out_unanswered(self, config: PesterConfig) -> int:
         now = self._clock.now()
-        default = self._config.scheduler.default_answer_within_seconds
+        default = config.scheduler.default_answer_within_seconds
         done = 0
         for awaiting in await self._repo.awaiting_jobs():
             if awaiting.has_response:
@@ -57,13 +52,13 @@ class SchedulerWorker:
                 done += await self._repo.mark_unanswered(awaiting.job.pk, awaiting.sent_at, deadline)
         return done
 
-    async def _schedule(self) -> int:
+    async def _schedule(self, config: PesterConfig, personalities: PersonalityRegistry) -> int:
         now = self._clock.now()
         snapshot = await self._repo.scheduling_snapshot(now - _PROMPT_HISTORY)
         routable: dict[int, tuple[JobRecord, str, str]] = {}
         candidates: list[Candidate] = []
         for job in snapshot.queued:
-            route = self._route(job)
+            route = self._route(config, job)
             expires_at = job.spec.delivery.expires_at
             if route is None and not (expires_at and expires_at <= now):
                 continue  # no enabled channel; leave queued until one is configured
@@ -83,10 +78,10 @@ class SchedulerWorker:
 
         recipients: dict[str, RecipientState] = {}
         for recipient_id in {c.recipient_id for c in candidates}:
-            recipient = self._config.recipients.get(recipient_id)
+            recipient = config.recipients.get(recipient_id)
             if recipient is None:
                 continue
-            quiet = recipient.quiet_hours or self._config.scheduler.quiet_hours
+            quiet = recipient.quiet_hours or config.scheduler.quiet_hours
             recipients[recipient_id] = RecipientState(
                 tz=recipient.tz,
                 quiet=_window(quiet),
@@ -95,32 +90,46 @@ class SchedulerWorker:
                 paused=recipient_id in snapshot.paused,
             )
 
-        plan = decide(now, candidates, recipients, self._policy)
+        plan = decide(now, candidates, recipients, _policy(config.scheduler))
         done = 0
         for key in plan.expire:
             done += await self._repo.expire(key)
         for key in plan.send:
             job, channel, address = routable[key]
-            message = OutboundMessage(text=await self._prompt_text(job), options=job.spec.response_options)
+            text = await _prompt_text(job, personalities)
+            message = OutboundMessage(text=text, options=job.spec.response_options)
             done += await self._repo.claim_for_send(key, channel, address, message)
         return done
 
-    async def _prompt_text(self, job: JobRecord) -> str:
-        if job.spec.delivery.prompt_rendering != "personality":
-            return job.spec.prompt
-        personality = self._personalities.resolve(job.spec.personality_id)
-        return (await personality.prompt(PromptContext(job.spec))).text
-
-    def _route(self, job: JobRecord) -> tuple[str, str] | None:
+    def _route(self, config: PesterConfig, job: JobRecord) -> tuple[str, str] | None:
         """(channel, address) for a job: its requested channel, else the recipient's first enabled one."""
-        recipient = self._config.recipients.get(job.spec.recipient_id)
+        recipient = config.recipients.get(job.spec.recipient_id)
         if recipient is None:
             return None
         names = [job.spec.delivery.channel] if job.spec.delivery.channel else list(recipient.channels)
         for name in names:
             if name in self._channels and name in recipient.channels:
-                return name, self._channels[name].address_of(recipient.channels[name])
+                try:
+                    return name, self._channels[name].address_of(recipient.channels[name])
+                except ValueError as exc:  # leave the job queued; the rest of the pass goes on
+                    log.warning("recipient %s: bad %s config: %s", job.spec.recipient_id, name, exc)
         return None
+
+
+async def _prompt_text(job: JobRecord, personalities: PersonalityRegistry) -> str:
+    if job.spec.delivery.prompt_rendering != "personality":
+        return job.spec.prompt
+    personality = personalities.resolve(job.spec.personality_id)
+    return (await personality.prompt(PromptContext(job.spec))).text
+
+
+def _policy(scheduler: SchedulerConfig) -> Policy:
+    return Policy(
+        max_outstanding=scheduler.max_outstanding,
+        min_interval=timedelta(minutes=scheduler.min_interval_minutes),
+        max_per_day=scheduler.max_messages_per_day,
+        jitter=seeded_jitter(scheduler.jitter_seed, scheduler.jitter_minutes),
+    )
 
 
 def _window(quiet: QuietHours | None) -> QuietWindow | None:

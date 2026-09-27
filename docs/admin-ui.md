@@ -28,23 +28,24 @@ Deploy in Dockge → open http://server:8000/admin → set a password → add a 
 
 ## 2. Phasing
 
-The **shell** is built now, against today's YAML config. The **editable** screens need M6 (config in the
-database).
+The **shell** (M7, first half) shipped against YAML config. M6 moved config into the database behind the
+admin service, with a CLI for every change. The **editable** screens (M7, second half) are forms over that
+same service.
 
-| Area | Shell (now) | After M6 |
+| Area | Now | Next: M7 forms |
 |---|---|---|
 | Login + first-run setup | ✓ | |
 | Dashboard: counts, health, recent activity | ✓ | |
 | Jobs: list, detail timeline, cancel | ✓ | |
-| Mock messenger | ✓ (dev-mode `fake` channel) | a configured mock channel instance, with a persistent transcript |
-| Recipients | read-only list, pause/resume | approve pairings, invite codes, edit timezone and quiet hours |
-| Clients | read-only list | create (token shown once), edit, revoke |
-| Channels | read-only status | add or configure from the adapter schema, restart |
+| Mock messenger | ✓ any configured mock channel; transcript persists | |
+| Recipients | list, pause/resume, pending pairing requests | approve/reject pairings, invite codes, edit timezone and quiet hours |
+| Clients | read-only list | create (token shown once), edit, rotate, revoke |
+| Channels | status and per-channel errors | add or configure from the adapter schema, secrets, restart |
 | Personalities | read-only list + preview | create/edit |
-| Pacing, LLM | read-only | edit; "test connection" |
+| Pacing, LLM | read-only; key status | edit; set the key; "test connection" |
 
-Read-only pages in the shell show a note like "Edit `config.yaml` to change this; editing here arrives with
-M6", so the page layout stays the same when the forms arrive.
+Read-only pages show the CLI command for each change (`pester client create …`), so the page layout stays
+the same when the forms arrive.
 
 ## 3. Authentication
 

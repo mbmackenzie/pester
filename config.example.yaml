@@ -1,5 +1,13 @@
-# Example Pester deployment config. Point PESTER_CONFIG at a copy of this file.
-# Generate token hashes with: pester hash-token
+# Example Pester deployment config.
+#
+# Config lives in Pester's database and is managed with the admin UI or the `pester` CLI. A YAML file like
+# this one is optional: it seeds an empty database (PESTER_CONFIG=path, on first start) or replaces the
+# current config (`pester import path`). `pester export` writes the current config in this format.
+#
+# Secrets (the LLM API key, channel tokens) never go in this file: set them with `pester llm key` and
+# `pester channel secret`, or with environment variables such as OPENAI_API_KEY.
+#
+# Generate token hashes with: pester hash-token (or let `pester client create` do it)
 
 clients:
   example-producer:
@@ -12,8 +20,14 @@ recipients:
     timezone: America/New_York
     quiet_hours: {start: "22:00", end: "09:00"}
     channels:
-      fake: {address: kate}
-      # telegram: {user_id: 123456789, chat_id: 123456789}
+      mock: {address: kate}
+
+# Delivery channels. `type` is a built-in adapter or an import path to your own (`my_package.chat:Adapter`);
+# other keys are its options. People reach Pester through a channel; a message from an address no recipient
+# uses becomes a pairing request for the admin to approve (unless `accept_pairing: false`).
+channels:
+  mock:
+    type: mock   # a messenger built into Pester: use it from the admin UI's Messenger page
 
 # Personalities are registered by the deployer and chosen per job by producers (`personality_id`).
 # Producers can list them with GET /api/v1/personalities. `type` is a built-in (neutral, template, llm)

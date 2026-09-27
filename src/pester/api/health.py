@@ -50,11 +50,13 @@ async def readiness_checks(state: AppState, repo: Repository, runtime: Runtime) 
             },
         }
 
-    enabled, started = set(runtime.channels), runtime.started_channels
+    enabled, started = set(runtime.manager.enabled()), runtime.started_channels
+    errors = {s.name: s.error for s in runtime.manager.status() if s.error}
     checks["channels"] = {
         "ok": bool(enabled) and enabled <= started,
         "enabled": sorted(enabled),
         "started": sorted(started),
+        **({"errors": errors} if errors else {}),
         **({"error": "no delivery channels are enabled"} if not enabled else {}),
     }
 

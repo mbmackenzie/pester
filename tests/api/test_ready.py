@@ -48,7 +48,12 @@ async def test_not_ready_when_a_channel_fails_to_start(tmp_path: Path, config: P
     ):
         resp = await client.get("/ready")
     assert resp.status_code == 503
-    assert resp.json()["checks"]["channels"] == {"ok": False, "enabled": ["fake"], "started": []}
+    assert resp.json()["checks"]["channels"] == {
+        "ok": False,
+        "enabled": ["fake"],
+        "started": [],
+        "errors": {"fake": "ConnectionError('provider unreachable')"},
+    }
 
 
 async def test_workers_reported_when_running(tmp_path: Path, config: PesterConfig) -> None:

@@ -7,6 +7,7 @@ Two layers:
   scheduler policy) loaded from the YAML file named by ``PESTER_CONFIG``.
 """
 
+import re
 from datetime import time
 from enum import StrEnum
 from pathlib import Path
@@ -99,6 +100,29 @@ class PersonalityConfig(BaseModel):
         return dict(self.model_extra or {})
 
 
+CHANNEL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+class ChannelConfig(BaseModel):
+    """A channel instance.
+
+    ``type`` is a built-in adapter (``mock``) or an import path ``package.module:Adapter``. Other keys are
+    options for that adapter, validated by its options model. Secret options are never stored here; they're
+    kept apart (see ``pester.configstore``) or come from environment variables.
+    """
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    type: str
+    enabled: bool = True
+    description: str = ""
+    accept_pairing: bool = True  # unknown senders become pending recipients for the admin to approve
+
+    @property
+    def options(self) -> dict[str, Any]:
+        return dict(self.model_extra or {})
+
+
 class LLMConfig(_Strict):
     """OpenAI-compatible provider settings. The API key comes from ``OPENAI_API_KEY``, never from here."""
 
@@ -134,6 +158,7 @@ class PesterConfig(_Strict):
     clients: dict[str, ClientConfig] = Field(default_factory=dict)
     recipients: dict[str, RecipientConfig] = Field(default_factory=dict)
     personalities: dict[str, PersonalityConfig] = Field(default_factory=dict[str, PersonalityConfig])
+    channels: dict[str, ChannelConfig] = Field(default_factory=dict[str, ChannelConfig])
     default_personality: str = "default"
     scheduler: SchedulerConfig = SchedulerConfig()
     llm: LLMConfig = LLMConfig()
@@ -149,6 +174,14 @@ class PesterConfig(_Strict):
         personalities = dict(cast(dict[str, Any], raw.get("personalities") or {}))
         personalities.setdefault("default", {"type": "neutral"})
         return {**raw, "personalities": personalities}
+
+    @field_validator("channels")
+    @classmethod
+    def _check_channel_names(cls, value: dict[str, ChannelConfig]) -> dict[str, ChannelConfig]:
+        for name in value:
+            if not CHANNEL_NAME.match(name):
+                raise ValueError(f"channel name {name!r} must be lowercase letters, digits, '-' or '_'")
+        return value
 
     @model_validator(mode="after")
     def _check_references(self) -> Self:

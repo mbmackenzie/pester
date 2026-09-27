@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from openai import AsyncOpenAI
 
 from pester.config import LLMConfig, Settings
 from pester.core.models import HumanResponse, InteractionJob
@@ -37,6 +38,11 @@ JOB = InteractionJob.model_validate(
 )
 
 
+def _client(config: LLMConfig) -> AsyncOpenAI | None:
+    key = Settings(_env_file=ENV_FILE).openai_api_key  # pyright: ignore[reportCallIssue]
+    return make_client(key.get_secret_value(), config) if key else None
+
+
 @pytest.fixture
 def config() -> LLMConfig:
     return LLMConfig()
@@ -44,7 +50,7 @@ def config() -> LLMConfig:
 
 @pytest.fixture
 def evaluator(config: LLMConfig) -> LLMEvaluator:
-    client = make_client(Settings(_env_file=ENV_FILE), config)  # pyright: ignore[reportCallIssue]
+    client = _client(config)
     if client is None:
         pytest.skip("OPENAI_API_KEY not set in .env")
     return LLMEvaluator(client, config)
@@ -87,7 +93,7 @@ async def test_resists_prompt_injection(evaluator: LLMEvaluator) -> None:
 
 
 async def test_goblin_voices_feedback_without_losing_facts(config: LLMConfig) -> None:
-    client = make_client(Settings(_env_file=ENV_FILE), config)  # pyright: ignore[reportCallIssue]
+    client = _client(config)
     if client is None:
         pytest.skip("OPENAI_API_KEY not set in .env")
     goblin = llm_personality(

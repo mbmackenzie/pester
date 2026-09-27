@@ -3,20 +3,22 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from pester.config import PesterConfig
+from pester.configstore import ConfigStore
 from pester.core.clock import Clock
 from pester.core.messages import InboundMessage
-from pester.delivery.base import DeliveryChannel
+from pester.delivery.manager import ChannelManager
+from pester.delivery.pairing import PairingDesk
 from pester.delivery.router import ResponseRouter
 from pester.delivery.worker import DeliveryWorker
-from pester.evaluation.base import EvaluatorRegistry
 from pester.evaluation.worker import EvaluationWorker
-from pester.personality.registry import PersonalityRegistry
+from pester.live import LiveConfig, Snapshot, SnapshotBuilder
+from pester.pairing import PairingStore
 from pester.scheduler.worker import SchedulerWorker
+from pester.service import AdminService
 from pester.storage.repository import Repository
 
 log = logging.getLogger(__name__)
@@ -35,21 +37,32 @@ class Runtime:
     def __init__(
         self,
         repo: Repository,
-        config: PesterConfig,
+        live: LiveConfig,
         clock: Clock,
-        channels: Sequence[DeliveryChannel],
-        evaluators: EvaluatorRegistry,
-        personalities: PersonalityRegistry,
+        manager: ChannelManager,
+        *,
+        store: ConfigStore | None = None,
+        builder: SnapshotBuilder | None = None,
+        pairings: PairingStore | None = None,
+        service: AdminService | None = None,
     ) -> None:
         self._repo = repo
-        self.channels: Mapping[str, DeliveryChannel] = {c.name: c for c in channels}
-        self.evaluators = evaluators
-        self.personalities = personalities
-        self.router = ResponseRouter(repo, config, self.channels, clock)
-        self.scheduler = SchedulerWorker(repo, config, self.channels, clock, personalities)
-        self.delivery = DeliveryWorker(repo, self.channels, clock, config.delivery)
-        self.evaluation = EvaluationWorker(repo, evaluators, personalities, clock)
+        self.live = live
+        self._store = store
+        self._builder = builder
+        self._failed_version = 0
+        self._reload_lock = asyncio.Lock()  # the config step and the admin service both reload
+        self.manager = manager
+        self.channels = manager.channels  # updated in place as channels start and stop
+        self.pairing = PairingDesk(pairings, service, manager, live) if pairings and service else None
+        self.router = ResponseRouter(
+            repo, live, self.channels, clock, self.pairing.handle_unknown if self.pairing else None
+        )
+        self.scheduler = SchedulerWorker(repo, live, self.channels, clock)
+        self.delivery = DeliveryWorker(repo, self.channels, clock, live)
+        self.evaluation = EvaluationWorker(repo, live, clock)
         self._steps: dict[str, Callable[[], Awaitable[int]]] = {
+            "config": self._config_step,
             "scheduler": self.scheduler.run_once,
             "delivery": self.delivery.run_once,
             "evaluation": self.evaluation.run_once,
@@ -57,10 +70,48 @@ class Runtime:
         self._wake = {name: asyncio.Event() for name in self._steps}
         self._tasks: list[asyncio.Task[None]] = []
         self._stopping = False
-        self._started: set[str] = set()
         self._clock = clock
         self._last_ok: dict[str, datetime] = {}
         self._last_error: dict[str, str] = {}
+
+    async def _config_step(self) -> int:
+        done = await self.reload_config()
+        if self.pairing is not None:
+            done += await self.pairing.send_welcomes()
+        return done
+
+    async def reload_config(self) -> int:
+        """Put the latest stored config into effect if it's newer. Returns 1 if it changed, else 0.
+
+        Picks up changes from the admin UI and from the CLI running in another process. A version that
+        can't be built (e.g. a personality whose import path no longer resolves) is logged once and skipped;
+        the current config stays in effect.
+        """
+        if self._store is None or self._builder is None:
+            return 0
+        async with self._reload_lock:
+            return await self._reload()
+
+    async def _reload(self) -> int:
+        assert self._store is not None and self._builder is not None
+        version = await self._store.latest_version()
+        if version <= self.live.current.version or version == self._failed_version:
+            return 0
+        stored = await self._store.latest()
+        assert stored is not None
+        try:
+            snapshot = self._builder.build(stored.version, stored.config, await self._store.secrets())
+        except Exception:
+            log.exception(
+                "config version %d can't be put into effect; keeping version %d",
+                version,
+                self.live.current.version,
+            )
+            self._failed_version = version
+            return 0
+        await self.live.publish(snapshot)
+        log.info("config version %d is in effect (%s)", version, stored.comment)
+        return 1
 
     async def recover(self) -> None:
         """Resolve work a crash left in flight. Everything else resumes from its persisted state."""
@@ -68,19 +119,20 @@ class Runtime:
             log.warning("resolved %d delivery(ies) interrupted mid-send; they were not resent", recovered)
 
     async def start_channels(self) -> None:
-        for name, channel in self.channels.items():
-            try:
-                await channel.start(self._on_inbound)
-            except Exception:
-                log.exception("channel %s failed to start", name, extra={"channel": name})
-            else:
-                self._started.add(name)
+        """Start every channel, and keep configured channels in step with config from now on."""
+        await self.manager.start_injected(self._on_inbound)
+        await self.manager.sync(self.live.current, self._on_inbound)
+        self.live.add_listener(self._sync_channels)
 
     async def stop_channels(self) -> None:
-        for name in list(self._started):
-            with contextlib.suppress(Exception):
-                await self.channels[name].stop()
-            self._started.discard(name)
+        await self.manager.stop_all()
+
+    async def restart_channel(self, name: str) -> None:
+        await self.manager.restart(name, self.live.current, self._on_inbound)
+        self.nudge()
+
+    async def _sync_channels(self, snapshot: Snapshot) -> None:
+        await self.manager.sync(snapshot, self._on_inbound)
 
     def start_workers(self) -> None:
         for name, step in self._steps.items():
@@ -119,7 +171,7 @@ class Runtime:
 
     @property
     def started_channels(self) -> frozenset[str]:
-        return frozenset(self._started)
+        return self.manager.started
 
     def nudge(self) -> None:
         """Wake every worker loop; called whenever something happened that may create work."""

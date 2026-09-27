@@ -5,17 +5,15 @@ from typing import Any, cast
 from openai import AsyncOpenAI, omit
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam, completion_create_params
 
-from pester.config import LLMConfig, Settings
+from pester.config import LLMConfig
 
 Message = ChatCompletionMessageParam
 
 
-def make_client(settings: Settings, config: LLMConfig) -> AsyncOpenAI | None:
-    """A client for the configured provider, or None when no API key is set."""
-    if settings.openai_api_key is None:
-        return None
+def make_client(api_key: str, config: LLMConfig) -> AsyncOpenAI:
+    """A client for the configured OpenAI-compatible provider."""
     return AsyncOpenAI(
-        api_key=settings.openai_api_key.get_secret_value(),
+        api_key=api_key,
         base_url=config.base_url,
         timeout=config.timeout_seconds,
     )

@@ -268,7 +268,8 @@ async def test_messenger_needs_csrf(client: httpx.AsyncClient, signed_in: str) -
 
 async def test_unknown_address_is_flagged(client: httpx.AsyncClient, signed_in: str) -> None:
     page = (await client.get("/admin/chat", params={"address": "stranger"})).text
-    assert "Pester ignores its messages" in page
+    assert "No recipient uses the address" in page
+    assert "/start" in page
 
 
 async def test_messenger_without_the_mock_channel(
@@ -276,7 +277,7 @@ async def test_messenger_without_the_mock_channel(
 ) -> None:
     app.state.runtime.channels = {}  # a deployment without the mock channel
     page = (await client.get("/admin/chat")).text
-    assert "mock channel isn't running" in page
+    assert "No mock channel is running" in page
     assert (await client.get("/admin/chat/kate/log")).status_code == 404
 
 
@@ -343,3 +344,11 @@ async def test_preview_reports_bad_input(client: httpx.AsyncClient, signed_in: s
         },
     )
     assert "needs response options" in resp.text
+
+
+async def test_pending_pairings_are_listed(client: httpx.AsyncClient, app: FastAPI, signed_in: str) -> None:
+    await client.post("/admin/chat/zoe", data={"text": "/start"}, headers={"X-CSRF-Token": signed_in})
+    page = (await client.get("/admin/recipients")).text
+    assert "Pending pairing requests" in page
+    assert "zoe" in page
+    assert "pester pairing approve" in page

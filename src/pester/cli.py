@@ -2,6 +2,7 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
+from pester import cli_admin
 from pester.core.tokens import generate_token, hash_token
 
 
@@ -74,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("address", help="the recipient's fake channel address")
     chat.add_argument("--url", default="http://127.0.0.1:8000", help="Pester server URL")
     chat.set_defaults(func=_chat)
+
+    cli_admin.register(sub)
 
     admin = sub.add_parser("admin", help="admin UI maintenance")
     admin_sub = admin.add_subparsers(dest="admin_command", required=True)

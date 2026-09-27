@@ -69,6 +69,10 @@ class PersonalityRegistry:
         return personality_id in self._entries
 
     def resolve(self, personality_id: str | None) -> RegisteredPersonality:
+        """The named personality. One removed since the job was submitted falls back to the default."""
+        if personality_id is not None and personality_id not in self._entries:
+            log.warning("personality %s is no longer registered; using %s", personality_id, self.default_id)
+            personality_id = None
         return self._entries[personality_id or self.default_id]
 
     def all(self) -> list[RegisteredPersonality]:
@@ -87,7 +91,7 @@ def build_registry(config: PesterConfig, services: PersonalityServices) -> Perso
         )
         if entry.type == "llm" and services.llm_client is None:
             log.warning(
-                "personality %s uses an LLM but OPENAI_API_KEY is not set; it will fall back to neutral text",
+                "personality %s uses an LLM but no LLM API key is set; it will fall back to neutral text",
                 personality_id,
             )
     return PersonalityRegistry(entries, config.default_personality)

@@ -14,21 +14,24 @@ Pester is domain-agnostic. It doesn't know about quizzes, habits, or reminders; 
 - **Deploying:** [docs/deploy.md](docs/deploy.md) (Docker Compose / Dockge, LAN-only)
 - **Roadmap:** milestone issues M0–M8 on GitHub
 
-Status: pre-alpha. The full loop runs locally against the fake channel, with LLM grading, pluggable personalities, realistic pacing, crash recovery, and a LAN-only admin UI at `/admin` (design: [docs/admin-ui.md](docs/admin-ui.md)).
+Status: pre-alpha. The full loop runs locally on a built-in mock channel, with LLM grading, pluggable personalities and channels, realistic pacing, crash recovery, config in the database with live changes, pairing, and a LAN-only admin UI at `/admin` (design: [docs/admin-ui.md](docs/admin-ui.md)).
 
 ## Try it locally
 
-Dev mode uses a fake chat channel. Without an API key, `llm` evaluations are echoed back; add
-`OPENAI_API_KEY=...` to a `.env` file (gitignored) for real grading and LLM personalities.
+Config lives in a SQLite database and is managed with the `pester` CLI or the admin UI; no config file is
+needed. Dev mode adds the echo evaluator, so `llm` evaluations work without an API key (add
+`OPENAI_API_KEY=...` to a `.env` file, gitignored, for real grading and LLM personalities).
 
 ```sh
 uv sync
-uv run pester hash-token            # prints a token and its hash
-cp config.example.yaml config.yaml  # paste the hash into clients.example-producer.token_hash
-# The example paces like production (quiet hours, 2h spacing, up to 30 min jitter). To see questions
-# immediately while trying it out, set scheduler.quiet_hours: null, min_interval_minutes: 0, jitter_minutes: 0.
+uv run pester channel add mock --type mock                     # a messenger built into Pester
+uv run pester recipient add kate --timezone America/New_York
+uv run pester recipient link kate mock address=kate
+uv run pester client create my-app --recipient kate            # prints a token, once
+# Pacing is production-like by default (quiet hours, 2h spacing, jitter). To see questions right away:
+uv run pester settings set scheduler.quiet_hours=null scheduler.min_interval_minutes=0 scheduler.jitter_minutes=0
 
-PESTER_DEV_MODE=true uv run pester serve --config config.yaml
+PESTER_DEV_MODE=true uv run pester serve
 
 # in another terminal: submit a job
 curl -H "Authorization: Bearer <token>" -H 'content-type: application/json' \
@@ -51,8 +54,11 @@ curl -H "Authorization: Bearer <token>" -H 'content-type: application/json' \
   localhost:8000/api/v1/jobs:preview
 ```
 
-Personalities are registered in the config file (see `config.example.yaml`): built-in `neutral`,
-`template`, and `llm` types, or your own class via an import path like `my_package.voices:Pirate`.
+Instead of the CLI steps, `pester import config.example.yaml` loads a whole example deployment (paste a
+token hash from `pester hash-token` into it first), and `pester export` prints the current config.
+Personalities come as built-in `neutral`, `template`, and `llm` types, or your own class via an import path
+like `my_package.voices:Pirate`; channels likewise (`mock`, or `my_package.chat:Adapter`). Someone new can
+pair themselves: from an unknown address, send `/start` and approve the request with `pester pairing`.
 
 ## Development
 

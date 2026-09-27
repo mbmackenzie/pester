@@ -221,21 +221,6 @@ class Repository:
             for row in rows
         ]
 
-    async def last_external_ids(self, channel: str) -> dict[str, int]:
-        """The highest numeric external message id Pester has recorded per address on ``channel``."""
-        async with self._db.read() as conn:
-            rows = await conn.execute_fetchall(
-                """
-                SELECT address, MAX(CAST(external_id AS INTEGER)) FROM (
-                    SELECT address, external_id FROM deliveries WHERE channel = ? AND external_id IS NOT NULL
-                    UNION ALL
-                    SELECT address, external_id FROM inbound_messages WHERE channel = ?
-                ) GROUP BY address
-                """,
-                (channel, channel),
-            )
-        return {row[0]: int(row[1] or 0) for row in rows}
-
     async def ping(self) -> None:
         """Raises unless the database accepts a write transaction."""
         async with self._db.transaction() as conn:

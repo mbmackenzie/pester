@@ -1,14 +1,14 @@
 """Maps inbound messages to jobs (spec §9.2)."""
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import timedelta
 
-from pester.config import PesterConfig
 from pester.core.clock import Clock
 from pester.core.messages import InboundMessage, OutboundMessage
 from pester.delivery.base import DeliveryChannel
 from pester.delivery.commands import CommandHandler
+from pester.live import LiveConfig
 from pester.storage.repository import IngestOutcome, Repository
 
 log = logging.getLogger(__name__)
@@ -25,24 +25,31 @@ class ResponseRouter:
     def __init__(
         self,
         repo: Repository,
-        config: PesterConfig,
+        live: LiveConfig,
         channels: Mapping[str, DeliveryChannel],
         clock: Clock,
+        on_unknown: Callable[[InboundMessage], Awaitable[None]] | None = None,
     ) -> None:
         self._repo = repo
+        self._live = live
         self._channels = channels
-        self._commands = CommandHandler(repo, config, clock)
-        self._debounce = timedelta(seconds=config.scheduler.debounce_seconds)
-        # channel name -> address -> recipient id; this is also the sender allowlist.
-        self._recipients: dict[str, dict[str, str]] = {name: {} for name in channels}
-        for recipient_id, recipient in config.recipients.items():
-            for name, channel_config in recipient.channels.items():
-                if name in channels:
-                    address = channels[name].address_of(channel_config)
-                    self._recipients[name][address] = recipient_id
+        self._commands = CommandHandler(repo, live, clock)
+        self._on_unknown = on_unknown
 
     def recipient_for(self, channel: str, address: str) -> str | None:
-        return self._recipients.get(channel, {}).get(address)
+        """The recipient with this address on this channel. Recipients are the sender allowlist."""
+        if (instance := self._channels.get(channel)) is None:
+            return None
+        for recipient_id, recipient in self._live.current.config.recipients.items():
+            channel_config = recipient.channels.get(channel)
+            if channel_config is None:
+                continue
+            try:
+                if instance.address_of(channel_config) == address:
+                    return recipient_id
+            except ValueError as exc:  # one malformed entry mustn't stop routing for everyone
+                log.warning("recipient %s: bad %s config: %s", recipient_id, channel, exc)
+        return None
 
     async def handle(self, message: InboundMessage) -> IngestOutcome | None:
         """Route one inbound message. Returns the outcome, or None if the sender is unknown."""
@@ -52,9 +59,12 @@ class ResponseRouter:
             kind = f"command /{message.command.name}" if message.command else "message"
             log.info("%s from %s", kind, recipient_id, extra=context)
         if recipient_id is None:
-            log.warning(
-                "dropping message from unknown sender %s on %s", message.sender_address, message.channel
-            )
+            if self._on_unknown is not None:
+                await self._on_unknown(message)  # pairing
+            else:
+                log.warning(
+                    "dropping message from unknown sender %s on %s", message.sender_address, message.channel
+                )
             return None
 
         if message.command is not None:
@@ -63,7 +73,8 @@ class ResponseRouter:
             await self._notify(message, await self._commands.handle(recipient_id, message))
             return IngestOutcome.COMMAND
 
-        outcome = (await self._repo.ingest_response(recipient_id, message, self._debounce)).outcome
+        debounce = timedelta(seconds=self._live.current.config.scheduler.debounce_seconds)
+        outcome = (await self._repo.ingest_response(recipient_id, message, debounce)).outcome
         if (notice := NOTICES.get(outcome)) is not None:
             await self._notify(message, notice)
         return outcome

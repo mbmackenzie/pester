@@ -4,7 +4,7 @@
 {% block content %}
 <h1>Clients</h1>
 <p>Clients are the producers that submit jobs and read events through <code>/api/v1</code> with a bearer token.</p>
-{{ readonly_note() }}
+{{ readonly_note("pester client create study-app --recipient kate") }}
 <section class="card flush">
 {% if clients %}
 <table>
@@ -22,11 +22,9 @@
 {% endif %}
 </section>
 <section class="card">
-  <h3>Adding a client today</h3>
-  <ol>
-    <li>Run <code>pester hash-token</code> (in the container: <code>docker compose exec pester pester hash-token</code>).</li>
-    <li>Give the token to the producer, and put the hash in <code>config.yaml</code> under <code>clients:</code>.</li>
-    <li>Restart Pester.</li>
-  </ol>
+  <h3>Adding a client</h3>
+  <p><code>pester client create NAME --recipient RECIPIENT</code> prints the client's token once. Give it to the
+  producer; Pester keeps only its hash. <code>pester client rotate NAME</code> replaces a lost token, and
+  <code>pester client revoke NAME</code> removes the client.</p>
 </section>
 {% endblock %}

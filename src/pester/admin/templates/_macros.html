@@ -2,9 +2,10 @@
   <span class="status status-{{ value | lower }}">{{ value }}</span>
 {%- endmacro %}
 
-{% macro readonly_note() -%}
-  <p class="note">Configured in <code>config.yaml</code>. Editing here arrives when config moves into the
-  database (M6).</p>
+{% macro readonly_note(command) -%}
+  <p class="note">Change this with the <code>pester</code> CLI, e.g. <code>{{ command }}</code> (in Docker:
+  <code>docker compose exec pester pester …</code>). Changes apply within seconds, no restart. Editing on this
+  page is coming next.</p>
 {%- endmacro %}
 
 {% macro csrf() -%}

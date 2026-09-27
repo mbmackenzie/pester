@@ -14,18 +14,17 @@ from pester.admin.auth import AdminAuth
 from pester.admin.queries import AdminQueries
 from pester.api import batches, dev, events, health, jobs, personalities, preview
 from pester.config import PesterConfig, Settings, load_config
+from pester.configstore import ConfigStore
 from pester.core.clock import Clock, SystemClock
 from pester.core.errors import IdempotencyConflictError, IllegalTransitionError, JobNotFoundError
+from pester.delivery.adapters import ChannelServices
 from pester.delivery.base import DeliveryChannel
-from pester.delivery.memory import InMemoryChannel
-from pester.evaluation.base import Evaluator, EvaluatorRegistry
-from pester.evaluation.echo import EchoEvaluator
-from pester.evaluation.llm import LLMEvaluator
-from pester.evaluation.rule import RuleEvaluator
-from pester.llm import make_client
-from pester.personality.base import PersonalityServices
-from pester.personality.registry import build_registry
+from pester.delivery.manager import ChannelManager
+from pester.evaluation.base import EvaluatorRegistry
+from pester.live import LiveConfig, SnapshotBuilder
+from pester.pairing import PairingStore
 from pester.runtime import Runtime
+from pester.service import AdminService
 from pester.state import AppState
 from pester.storage.db import Database
 from pester.storage.repository import Repository
@@ -41,35 +40,50 @@ def create_app(
     evaluators: EvaluatorRegistry | None = None,
     llm_client: AsyncOpenAI | None = None,
 ) -> FastAPI:
-    """Build the app. Misconfiguration (e.g. a broken personality) raises here, before anything is served."""
+    """Build the app.
+
+    Deployment config lives in the database. ``config``, when given, replaces it at startup (tests and
+    embedding); otherwise ``PESTER_CONFIG`` seeds an empty database. An explicit ``config`` that can't be put
+    into effect (e.g. a broken personality) raises here, before anything is served.
+    """
     settings = settings or Settings()
-    config = config if config is not None else load_config(settings.config)
-    llm_client = llm_client or make_client(settings, config.llm)
+    clock = clock or SystemClock()
     base_dir = settings.config.parent if settings.config else Path.cwd()
-    state = AppState(
-        settings=settings,
-        config=config,
-        clock=clock or SystemClock(),
-        evaluators=evaluators or default_evaluators(settings, config, llm_client),
-        personalities=build_registry(config, PersonalityServices(config.llm, llm_client, base_dir)),
-    )
-    if channels is None:
-        channels = [InMemoryChannel(state.clock, name="fake")] if settings.dev_mode else []
+    builder = SnapshotBuilder(settings, base_dir, evaluators=evaluators, llm_client=llm_client)
+    live = LiveConfig(builder.build(0, config, {}) if config is not None else None)
+    state = AppState(settings=settings, clock=clock, live=live)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         db = await Database.open(settings.database_path)
-        repo = Repository(db, state.clock)
-        runtime = Runtime(repo, state.config, state.clock, channels, state.evaluators, state.personalities)
+        repo = Repository(db, clock)
+        store = ConfigStore(db, clock)
+        await seed_config(store, settings, config)
+        stored = await store.latest()
+        assert stored is not None
+        await live.publish(builder.build(stored.version, stored.config, await store.secrets()))
+        pairings = PairingStore(db, clock)
+        service = AdminService(
+            store,
+            pairings,
+            validate=lambda config, secrets: _ignore(builder.build(0, config, secrets)),
+            on_saved=lambda: runtime.reload_config(),
+        )
+        manager = ChannelManager(
+            ChannelServices(clock, db), channels or (), dev_mock=settings.dev_mode and channels is None
+        )
+        runtime = Runtime(
+            repo, live, clock, manager, store=store, builder=builder, pairings=pairings, service=service
+        )
         app.state.repo = repo
         app.state.runtime = runtime
-        app.state.admin = AdminAuth(db, state.clock)
+        app.state.config_store = store
+        app.state.service = service
+        app.state.pairings = pairings
+        app.state.admin = AdminAuth(db, clock)
         app.state.admin_queries = AdminQueries(db)
         await app.state.admin.announce()
         await runtime.recover()
-        for channel in channels:
-            if isinstance(channel, InMemoryChannel):
-                channel.continue_after(await repo.last_external_ids(channel.name))
         await runtime.start_channels()
         if settings.run_workers:
             runtime.start_workers()
@@ -91,18 +105,32 @@ def create_app(
     return app
 
 
-def default_evaluators(
-    settings: Settings, config: PesterConfig, llm_client: AsyncOpenAI | None
-) -> EvaluatorRegistry:
-    by_name: dict[str, Evaluator] = {"rule": RuleEvaluator()}
-    if llm_client is not None:
-        by_name["llm"] = LLMEvaluator(llm_client, config.llm)
-    elif settings.dev_mode:
-        log.warning("OPENAI_API_KEY is not set: dev mode answers 'llm' evaluations with the echo evaluator")
-        by_name["llm"] = EchoEvaluator()
-    if settings.dev_mode:
-        by_name["echo"] = EchoEvaluator()
-    return EvaluatorRegistry(by_name)
+def _ignore(_: object) -> None:
+    return None
+
+
+async def seed_config(store: ConfigStore, settings: Settings, config: PesterConfig | None) -> None:
+    """Make sure the database has config, from ``config``, else ``PESTER_CONFIG``, else empty."""
+    latest = await store.latest()
+    if config is not None:
+        if latest is None or latest.config != config:
+            await store.save(config, "set by the application at startup")
+        return
+    if settings.config is not None:
+        from_file = load_config(settings.config)
+        if latest is None:
+            await store.save(from_file, f"imported from {settings.config}")
+        elif from_file != latest.config:
+            log.warning(
+                "%s differs from the config in the database (version %d), which is in effect. The file only "
+                "seeds an empty database; run `pester import %s` to apply it.",
+                settings.config,
+                latest.version,
+                settings.config,
+            )
+        return
+    if latest is None:
+        await store.save(PesterConfig(), "initial empty config")
 
 
 def _register_error_handlers(app: FastAPI) -> None:
