@@ -380,6 +380,9 @@ class AdminService:
         await self.update(f"set personality {personality_id}", edit)
 
     async def delete_personality(self, personality_id: str) -> None:
+        if personality_id == "default":
+            raise AdminError("the neutral 'default' personality is always available and can't be removed")
+
         def edit(data: dict[str, Any]) -> None:
             _existing(data["personalities"], "personality", personality_id)
             if data["default_personality"] == personality_id:

@@ -17,6 +17,8 @@ one per job with <code>personality_id</code>.</p>
       <a href="/admin/personalities/{{ pid }}">Edit</a>
       {% if pid != default_id %}
       <form method="post" action="/admin/personalities/{{ pid }}/default">{{ csrf() }}<button class="small secondary">Make default</button></form>
+      {% endif %}
+      {% if pid != default_id and pid != "default" %}
       <form method="post" action="/admin/personalities/{{ pid }}/delete" onsubmit="return confirm('Remove {{ pid }}? Jobs that ask for it will use the default.')">{{ csrf() }}<button class="small danger">Remove</button></form>
       {% endif %}
     </div></td>
