@@ -10,6 +10,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
+from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 Jitter = Callable[[str], timedelta]
@@ -127,22 +128,79 @@ def decide(
     return Plan(send=send, expire=expire, wake_at=min(wake_times, default=None))
 
 
+class Hold(StrEnum):
+    """Why a job can't be sent yet (beyond its own jitter)."""
+
+    NOT_BEFORE = "not_before"  # the producer scheduled it for later
+    SNOOZED = "snoozed"
+    SPACING = "spacing"  # too soon after the last question
+    QUIET_HOURS = "quiet_hours"
+    DAILY_CAP = "daily_cap"
+
+
 def earliest_send(now: datetime, c: Candidate, state: RecipientState, policy: Policy) -> datetime:
+    return send_time(now, c, state, policy)[0]
+
+
+def send_time(
+    now: datetime, c: Candidate, state: RecipientState, policy: Policy
+) -> tuple[datetime, frozenset[Hold]]:
+    """When ``c`` may be sent, and which rules push it past now."""
+    holds: set[Hold] = set()
     anchor = max(t for t in (c.created_at, c.not_before, c.snoozed_until) if t is not None)
+    if anchor > now:
+        holds.add(Hold.SNOOZED if anchor == c.snoozed_until else Hold.NOT_BEFORE)
     t = max(now, anchor + policy.jitter(f"job:{c.key}:{anchor.isoformat()}"))
     if policy.min_interval and (last := state.last_prompt) is not None:
-        t = max(t, last + policy.min_interval + policy.jitter(f"gap:{c.recipient_id}:{last.isoformat()}"))
+        spaced = last + policy.min_interval + policy.jitter(f"gap:{c.recipient_id}:{last.isoformat()}")
+        if spaced > t:
+            holds.add(Hold.SPACING)
+            t = spaced
 
     for _ in range(14):  # quiet hours and daily caps can push each other forward; this converges quickly
         local = t.astimezone(state.tz)
         if state.quiet is not None and (released := _quiet_release(t, c.recipient_id, state, policy)) > t:
+            holds.add(Hold.QUIET_HOURS)
             t = released
             continue
         if _sent_on(state, local.date()) >= policy.max_per_day:
+            holds.add(Hold.DAILY_CAP)
             t = _next_local(t, state.tz, time(0))
             continue
-        return t
-    return t
+        break
+    return t, frozenset(holds)
+
+
+@dataclass(frozen=True)
+class NextSend:
+    """The next of a recipient's queued jobs to go out, and what's holding it."""
+
+    key: int
+    at: datetime  # when the time-based rules allow it (it may still wait on the rules below)
+    holds: frozenset[Hold]
+    waiting_on_answer: bool  # the recipient has as many questions open as they may
+    paused: bool
+
+
+def next_send(
+    now: datetime, pending: Iterable[Candidate], state: RecipientState, policy: Policy
+) -> NextSend | None:
+    """Explain what happens next for one recipient, consistently with ``decide``."""
+    live = sorted(
+        (c for c in pending if c.expires_at is None or c.expires_at > now),
+        key=lambda c: (-c.priority, c.created_at, c.key),
+    )
+    if not live:
+        return None
+    timed = [(send_time(now, c, state, policy), c) for c in live]
+    (at, holds), chosen = min(timed, key=lambda item: item[0][0])  # ties keep priority order
+    return NextSend(
+        key=chosen.key,
+        at=at,
+        holds=holds,
+        waiting_on_answer=state.outstanding >= policy.max_outstanding,
+        paused=state.paused,
+    )
 
 
 def _quiet_release(t: datetime, recipient_id: str, state: RecipientState, policy: Policy) -> datetime:

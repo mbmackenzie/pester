@@ -375,7 +375,7 @@ A message that arrives after the job is answered, evaluated, or closed emits `IN
 | `/snooze [duration]` | Open question → `QUEUED` until now + duration (`30m`, `2h`, `1h30m`, `1d`; default 1h, at most `max_snooze_hours`), emitting `INTERACTION_SNOOZED`. Stored as the scheduler-owned `snoozed_until`; the job spec is unchanged. It's asked again later, subject to all pacing rules |
 | `/send` | Send the next question now, skipping pacing (quiet hours, spacing, jitter, daily cap). The highest-priority queued job whose `not_before`/`expires_at` allow it; only when no question is outstanding. Sends even while paused (and says so). It counts toward pacing like any send |
 | `/pause`, `/resume` | Stop or resume all prompts to this recipient (open questions stay open) |
-| `/status` | Open questions (with when they were asked, in local time), queued count, paused state |
+| `/status` | Open questions (with when they were asked, in local time), paused state, and how many are queued with when the next one comes and why it waits: quiet hours, spacing, the daily cap, a snooze, or the producer's `not_before` (computed by the same policy the scheduler uses) |
 | anything else | Lists the commands |
 
 `/skip` and `/snooze` act on the replied-to question, or the single open question. With several open and no reply-to, the person is asked to reply to the one they mean. Channels parse commands into the channel-agnostic `Command` type.

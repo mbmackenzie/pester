@@ -50,6 +50,7 @@
     <td>
       {% if s.paused %}<span class="status status-paused">PAUSED</span>{% else %}<span class="status status-active">ACTIVE</span>{% endif %}
       <span class="muted small">{{ s.queued }} queued · {{ s.awaiting | length }} awaiting</span>
+      {% if next_up.get(id) %}<div class="muted small">next: {{ next_up[id] }}</div>{% endif %}
     </td>
     <td><div class="actions">
       <a href="/admin/recipients/{{ id }}">Edit</a>

@@ -379,3 +379,11 @@ async def test_telegram_channel_form(browser: Admin) -> None:
     advanced = form.split('<details class="advanced">', 1)[1]
     assert 'name="opt_api_base"' in advanced  # rarely changed options are collapsed
     assert 'name="opt_bot_token"' not in advanced
+
+
+async def test_recipients_page_says_when_the_next_question_comes(browser: Admin, app: FastAPI) -> None:
+    await app.state.service.update_recipient("kate", quiet_hours="00:00-23:59")
+    resp = await browser.client.post("/api/v1/jobs", json=job_payload(), headers=auth(TOKEN_A))
+    assert resp.status_code == 201
+    page = (await browser.get("/admin/recipients")).text
+    assert "next: " in page and "quiet hours until 11:59 PM" in page
