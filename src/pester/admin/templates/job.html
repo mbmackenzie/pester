@@ -76,7 +76,7 @@
     {% if ev.latency_ms is not none %} · {{ "%.1f" | format(ev.latency_ms / 1000) }} s{% endif %}
     {% if ev.usage and ev.usage.total_tokens %} · {{ ev.usage.total_tokens }} tokens{% endif %}
     · {{ ev.attempts }} attempt{{ "s" if ev.attempts != 1 }}
-    {% if ev.personality_id %} · voiced by {{ ev.personality_id }}{% if ev.personality_fallback %} (fell back to neutral){% endif %}{% endif %}
+    {% if ev.personality_id %} · voiced by {{ ev.personality_id }}{% if ev.personality_fallback %} <span class="error-text">(fell back to neutral{% if ev.personality_error %}: {{ ev.personality_error }}{% endif %})</span>{% endif %}{% endif %}
   </p>
   {% if ev.error %}<p class="error">{{ ev.error }}</p>{% endif %}
   {% if ev.result %}<pre>{{ ev.result | pretty_json }}</pre>{% endif %}

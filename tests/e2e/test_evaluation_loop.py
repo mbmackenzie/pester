@@ -87,6 +87,9 @@ async def test_personality_failure_still_delivers_neutral_feedback(loop: Loop) -
     assert loop.last_seen().text == "Not quite: readers use a snapshot."
     assert await loop.status(job_id) == "COMPLETED"
     assert (await loop.events(job_id))[3]["payload"]["feedback"]["personality_fallback"] is True
+    (row,) = loop.audit()
+    assert row["personality_fallback"] == 1
+    assert row["personality_error"] and "500" in row["personality_error"]  # why, for the job's audit trail
 
 
 async def test_rule_evaluator_needs_no_llm(loop: Loop) -> None:

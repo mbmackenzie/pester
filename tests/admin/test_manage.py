@@ -15,7 +15,7 @@ from pester.main import create_app
 from pester.runtime import Runtime
 from tests.admin.conftest import set_up
 from tests.conftest import TOKEN_A, auth, job_payload, make_settings
-from tests.llm_fakes import FakeLLM, completion, connection_error
+from tests.llm_fakes import FakeLLM, completion, connection_error, evaluation
 
 TOKEN_TYPE = "tests.e2e.test_channels:TokenAdapter"
 
@@ -387,3 +387,70 @@ async def test_recipients_page_says_when_the_next_question_comes(browser: Admin,
     assert resp.status_code == 201
     page = (await browser.get("/admin/recipients")).text
     assert "next: " in page and "quiet hours until 11:59 PM" in page
+
+
+async def test_preview_shows_every_llm_call(tmp_path: Path, config: PesterConfig, clock: FakeClock) -> None:
+    llm = FakeLLM()
+    app = create_app(settings=make_settings(tmp_path), config=config, clock=clock, llm_client=llm.client())
+    transport = httpx.ASGITransport(app=app)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=transport, base_url="http://test") as c,
+    ):
+        admin = Admin(c, await set_up(c, app))
+        llm.queue(
+            evaluation({"score": 1}, "They watered the plants."), completion("Fine. The plants live. Barely.")
+        )
+        page = (
+            await admin.post(
+                "/admin/personalities/preview",
+                personality_id="weather-goblin",
+                prompt="Did you water the plants?",
+                evaluator="llm",
+                evaluation_prompt="Score 1 if yes",
+                reply="yes",
+            )
+        ).text
+    assert "What was sent to the LLM" in page
+    assert "evaluation" in page and "personality: feedback" in page
+    assert "Be a goblin." in page  # the personality's prompt, in its system message
+    assert "Facts to convey: They watered the plants." in page  # its user message
+    assert "Fine. The plants live. Barely." in page  # its reply
+    assert "didn't work" not in page
+
+
+async def test_preview_explains_a_personality_fallback(browser: Admin) -> None:
+    listing = (await browser.get("/admin/personalities")).text
+    assert "weather-goblin uses an LLM, but no LLM API key" in listing
+    page = (
+        await browser.post(
+            "/admin/personalities/preview",
+            personality_id="weather-goblin",
+            prompt="Water?",
+            evaluator="echo",
+            evaluation_prompt="x",
+            reply="yes",
+        )
+    ).text
+    assert "personality didn't work, so the plain text was used" in page
+    assert "no LLM API key is set" in page
+
+
+async def test_api_preview_does_not_return_llm_calls(browser: Admin) -> None:
+    resp = await browser.client.post(
+        "/api/v1/jobs:preview",
+        headers=auth(TOKEN_A),
+        json={
+            "job": {
+                "recipient_id": "kate",
+                "prompt": "Water?",
+                "personality_id": "weather-goblin",
+                "evaluation": {"evaluator": "echo", "prompt": "x"},
+            },
+            "response": {"text": "yes"},
+        },
+    )
+    body = resp.json()
+    assert "llm_calls" not in body
+    assert body["personality_fallback"] is True
+    assert "no LLM API key" in body["personality_error"]

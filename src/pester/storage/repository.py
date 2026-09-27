@@ -648,14 +648,16 @@ class Repository:
         personality_id: str,
         personality_fallback: bool,
         feedback: OutboundMessage,
+        personality_error: str | None = None,
     ) -> None:
         """Store the evaluation, move the job to EVALUATED, and queue the feedback message."""
         async with self._db.transaction() as conn:
             job_pk = answered.job.pk
             await conn.execute(
                 "INSERT INTO evaluations (job_pk, status, evaluator, model, result, feedback_facts, raw, "
-                "request, usage, latency_ms, attempts, personality_id, personality_fallback, feedback_text, "
-                "created_at) VALUES (?, 'SUCCESS', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "request, usage, latency_ms, attempts, personality_id, personality_fallback, "
+                "personality_error, feedback_text, created_at) "
+                "VALUES (?, 'SUCCESS', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     job_pk,
                     evaluator,
@@ -669,6 +671,7 @@ class Repository:
                     outcome.attempts,
                     personality_id,
                     int(personality_fallback),
+                    personality_error,
                     feedback.text,
                     to_db(self._clock.now()),
                 ),

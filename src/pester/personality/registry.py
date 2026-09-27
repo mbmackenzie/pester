@@ -35,6 +35,7 @@ BUILTIN_OPTIONS: Mapping[str, type[BaseModel]] = {
 class Rendered:
     text: str
     fallback: bool  # True when the personality failed and the neutral text was used instead
+    error: str | None = None  # why it fell back
 
 
 @dataclass(frozen=True)
@@ -61,9 +62,11 @@ class RegisteredPersonality:
             if text.strip():
                 return Rendered(text.strip(), fallback=False)
             log.warning("personality %s returned no text for %s; using neutral text", self.id, job_id)
+            error = "it returned no text"
         except Exception as exc:
             log.warning("personality %s failed for %s: %r; using neutral text", self.id, job_id, exc)
-        return Rendered(neutral_text, fallback=True)
+            error = f"{type(exc).__name__}: {exc}"
+        return Rendered(neutral_text, fallback=True, error=error)
 
 
 class PersonalityRegistry:

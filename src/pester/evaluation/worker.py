@@ -51,6 +51,7 @@ class EvaluationWorker:
             outcome=assessment.outcome,
             personality_id=assessment.personality_id,
             personality_fallback=assessment.feedback.fallback,
+            personality_error=assessment.feedback.error,
             feedback=feedback,
         )
         return closed + 1

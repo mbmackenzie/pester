@@ -92,6 +92,7 @@ class LLMEvaluator:
                     messages=messages,
                     response_format=response_format,
                     temperature=temperature,
+                    purpose="evaluation",
                 )
             except _TRANSIENT as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
