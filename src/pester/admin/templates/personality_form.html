@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf, error_box, option_field with context %}
+{% from "_macros.html" import csrf, error_box, option_fields with context %}
 {% block title %}{{ personality_id or "New personality" }}{% endblock %}
 {% block content %}
 <p><a href="/admin/personalities">← Personalities</a></p>
@@ -16,7 +16,7 @@
     <label>Description <input name="description" value="{{ values.description or '' }}" placeholder="A fern with opinions">
       <span class="help">Shown to producers by <code>GET /api/v1/personalities</code>.</span></label>
     {% if fields is not none %}
-      {% for f in fields %}{{ option_field(f) }}{% else %}<p class="muted">This type has no options.</p>{% endfor %}
+      {% if fields %}{{ option_fields(fields) }}{% else %}<p class="muted">This type has no options.</p>{% endif %}
     {% else %}
       <label>Options <span class="muted">(YAML)</span><textarea name="options_yaml" rows="8">{{ options_yaml }}</textarea>
         <span class="help">Passed to <code>{{ personality_type }}</code>.</span></label>

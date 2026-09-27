@@ -38,9 +38,17 @@ class TelegramOptions(BaseModel):
         json_schema_extra={"env": "TELEGRAM_BOT_TOKEN"},
     )
     api_base: str = Field(
-        default="https://api.telegram.org", description="Change only if you run your own Bot API server."
+        default="https://api.telegram.org",
+        description="Change only if you run your own Bot API server.",
+        json_schema_extra={"advanced": True},
     )
-    poll_seconds: int = Field(default=30, ge=1, le=50, description="How long each long-poll request waits.")
+    poll_seconds: int = Field(
+        default=30,
+        ge=1,
+        le=50,
+        description="How long each long-poll request waits.",
+        json_schema_extra={"advanced": True},
+    )
 
 
 class TelegramAdapter:

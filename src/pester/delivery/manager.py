@@ -22,7 +22,7 @@ from pester.delivery.adapters import (
     secret_fields,
     secret_name,
 )
-from pester.delivery.base import DeliveryChannel, InboundHandler
+from pester.delivery.base import ChannelError, DeliveryChannel, InboundHandler
 from pester.live import Snapshot
 
 log = logging.getLogger(__name__)
@@ -206,6 +206,11 @@ class ChannelManager:
     async def _start(self, name: str, channel: DeliveryChannel, on_inbound: InboundHandler) -> None:
         try:
             await channel.start(on_inbound)
+        except (
+            ChannelError
+        ) as exc:  # an expected failure with a message written for people (e.g. a bad token)
+            self._fail(name, str(exc))
+            return
         except Exception as exc:
             log.exception("channel %s failed to start", name, extra={"channel": name})
             self._fail(name, repr(exc))

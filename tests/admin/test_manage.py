@@ -370,3 +370,12 @@ async def test_every_management_page_renders(browser: Admin) -> None:
     ):
         resp = await browser.get(path)
         assert resp.status_code == 200, (path, resp.text[:300])
+
+
+async def test_telegram_channel_form(browser: Admin) -> None:
+    form = (await browser.get("/admin/channels/new?type=telegram")).text
+    assert 'name="opt_bot_token"' in form and 'type="password"' in form
+    assert "TELEGRAM_BOT_TOKEN" in form
+    advanced = form.split('<details class="advanced">', 1)[1]
+    assert 'name="opt_api_base"' in advanced  # rarely changed options are collapsed
+    assert 'name="opt_bot_token"' not in advanced

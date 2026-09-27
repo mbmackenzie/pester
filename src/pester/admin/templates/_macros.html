@@ -49,6 +49,18 @@
   {% if f.help %}<span class="help">{{ f.help }}</span>{% endif %}
 {%- endmacro %}
 
+{# Fields from an options model, with the rarely changed ones collapsed under "Advanced". #}
+{% macro option_fields(fields) -%}
+  {% for f in fields if not f.advanced %}{{ option_field(f) }}{% endfor %}
+  {% set advanced = fields | selectattr("advanced") | list %}
+  {% if advanced %}
+  <details class="advanced">
+    <summary>Advanced</summary>
+    <div class="stack">{% for f in advanced %}{{ option_field(f) }}{% endfor %}</div>
+  </details>
+  {% endif %}
+{%- endmacro %}
+
 {% macro checkboxes(name, choices, selected) -%}
   <div class="checks">
     {% for c in choices %}

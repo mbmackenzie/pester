@@ -123,7 +123,7 @@ async def test_invite_links_use_the_bot(app: FastAPI, api: FakeBotAPI) -> None:
 async def test_a_bad_token_shows_as_a_channel_error(app: FastAPI, client: httpx.AsyncClient) -> None:
     await service_of(app).add_channel("telegram", "telegram", {"bot_token": "000:NOT-THE-TOKEN"})
     checks = (await client.get("/ready")).json()["checks"]["channels"]
-    assert "rejected the bot token" in checks["errors"]["telegram"]
+    assert checks["errors"]["telegram"].startswith("Telegram rejected the bot token")  # a message, not a repr
     assert "NOT-THE-TOKEN" not in str(checks)
 
 
