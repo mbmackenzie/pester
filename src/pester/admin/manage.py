@@ -83,6 +83,15 @@ def done(request: Request, message: str, location: str) -> Response:
     return flash(redirect(request, location), message)
 
 
+def _name_part(sender_name: str | None) -> str | None:
+    """``Kate Smith (@kates)`` → ``kates``; ``Kate Smith`` → ``kate``."""
+    if not sender_name:
+        return None
+    if match := re.search(r"@([A-Za-z0-9_]+)", sender_name):
+        return match.group(1).lower()
+    return sender_name.split()[0].lower()
+
+
 def suggested_id(address: str) -> str:
     """A recipient id suggested for a new pairing, from the address."""
     cleaned = re.sub(r"[^A-Za-z0-9._:-]+", "-", address).strip("-._:")
@@ -221,7 +230,7 @@ async def _recipients_page(
         admin,
         status_code,
         recipients=rows,
-        pending=[(p, suggested_id(p.address)) for p in pending],
+        pending=[(p, suggested_id(_name_part(p.sender_name) or p.address)) for p in pending],
         invites=await service.invites(),
         clients=sorted(state.config.clients),
         timezones=TIMEZONES,
@@ -399,7 +408,13 @@ async def create_invite(request: Request, admin: CheckedAdminDep) -> Response:
     except (AdminError, ValueError) as exc:
         return await _recipients_page(request, admin, 400, str(exc), {"invite": dict(form)})
     response = await render(
-        request, "invite_code.html", admin, code=code, recipient_id=recipient_id, days=days
+        request,
+        "invite_code.html",
+        admin,
+        code=code,
+        recipient_id=recipient_id,
+        days=days,
+        links=runtime_of(request).manager.invite_links(code),
     )
     response.headers.update(NO_STORE)
     return response

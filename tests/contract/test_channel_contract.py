@@ -1,7 +1,5 @@
-"""Behavior every DeliveryChannel must provide.
-
-Telegram (M6) joins the parametrization with its own harness.
-"""
+"""Behavior every DeliveryChannel must provide. Each channel joins the parametrization with a harness that
+plays the person on the far side."""
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -13,6 +11,8 @@ from pester.core.clock import FakeClock
 from pester.core.messages import InboundMessage, OutboundMessage
 from pester.delivery.base import DeliveryChannel
 from pester.delivery.memory import InMemoryChannel
+from pester.delivery.telegram import TelegramChannel
+from tests.fake_telegram import FakeBotAPI
 
 
 class Harness(Protocol):
@@ -26,7 +26,11 @@ class Harness(Protocol):
 
     async def person_sends(self, text: str, reply_to: str | None = None) -> None: ...
 
+    async def person_presses(self, external_id: str, index: int) -> None: ...
+
     def person_sees(self) -> list[str]: ...
+
+    async def close(self) -> None: ...
 
 
 @dataclass
@@ -37,14 +41,54 @@ class InMemoryHarness:
     async def person_sends(self, text: str, reply_to: str | None = None) -> None:
         await self.channel.inject(self.address, text, reply_to=int(reply_to) if reply_to else None)
 
+    async def person_presses(self, external_id: str, index: int) -> None:
+        message = next(m for m in self.channel.sent(self.address) if str(m.id) == external_id)
+        assert message.options is not None
+        await self.channel.inject(self.address, selected_option=message.options[index], reply_to=message.id)
+
     def person_sees(self) -> list[str]:
         return [m.text or "" for m in self.channel.sent(self.address)]
 
+    async def close(self) -> None:
+        pass
 
-@pytest.fixture(params=["memory"])
+
+@dataclass
+class TelegramHarness:
+    """The channel against a fake Bot API; the person's actions arrive through long polling."""
+
+    channel: TelegramChannel
+    api: FakeBotAPI
+    chat_id: int = 424242
+
+    @property
+    def address(self) -> str:
+        return str(self.chat_id)
+
+    async def person_sends(self, text: str, reply_to: str | None = None) -> None:
+        update = self.api.person_sends(self.chat_id, text, reply_to=int(reply_to) if reply_to else None)
+        await self.api.acknowledged(update)
+
+    async def person_presses(self, external_id: str, index: int) -> None:
+        await self.api.acknowledged(self.api.person_presses(self.chat_id, int(external_id), index))
+
+    def person_sees(self) -> list[str]:
+        return self.api.texts(self.chat_id)
+
+    async def close(self) -> None:
+        pass
+
+
+@pytest.fixture(params=["memory", "telegram"])
 async def harness(request: pytest.FixtureRequest) -> AsyncIterator[Harness]:
-    assert request.param == "memory"
-    yield InMemoryHarness(InMemoryChannel(FakeClock()))
+    if request.param == "memory":
+        yield InMemoryHarness(InMemoryChannel(FakeClock()))
+        return
+    api = FakeBotAPI()
+    yield TelegramHarness(
+        TelegramChannel("telegram", api.token, poll_seconds=1, transport=api.transport(), retry_seconds=0.01),
+        api,
+    )
 
 
 @pytest.fixture
@@ -101,3 +145,20 @@ async def test_inbound_ids_unique_within_conversation(
 def test_address_of_rejects_missing_config(harness: Harness) -> None:
     with pytest.raises(ValueError):
         harness.channel.address_of({})
+
+
+async def test_buttons_select_an_option(harness: Harness, received: list[InboundMessage]) -> None:
+    receipt = await harness.channel.send(
+        harness.address, OutboundMessage(text="water?", options=["Yes", "No"])
+    )
+    await harness.person_presses(receipt.external_id, 1)
+    message = received[-1]
+    assert message.selected_option == "No"
+    assert message.reply_to_external_id == receipt.external_id  # routes to the prompt's job
+    assert message.sender_address == harness.address
+
+
+def test_recipient_config_round_trips(harness: Harness) -> None:
+    """Pairing stores recipient_config_for(address); it must reach the same address."""
+    channel = harness.channel
+    assert channel.address_of(channel.recipient_config_for(harness.address)) == harness.address

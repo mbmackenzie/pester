@@ -69,9 +69,10 @@ def secret_fields(model: type[BaseModel]) -> list[SecretField]:
 
 
 def builtin_adapters() -> dict[str, ChannelAdapter]:
-    from pester.delivery.mock import MockAdapter  # mock imports this module
+    from pester.delivery.mock import MockAdapter  # these import this module
+    from pester.delivery.telegram import TelegramAdapter
 
-    return {"mock": MockAdapter()}
+    return {"mock": MockAdapter(), "telegram": TelegramAdapter()}
 
 
 def resolve_adapter(type_name: str) -> ChannelAdapter:

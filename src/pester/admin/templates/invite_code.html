@@ -8,5 +8,10 @@
   {{ days }} day{{ "s" if days != 1 }}, and <strong>isn't shown again</strong>.</p>
   <div class="once" id="invite">/start {{ code }}</div>
   <p><button type="button" class="secondary small" data-copy="invite">Copy</button></p>
+  {% for channel, link in links.items() %}
+  <p>Or send them a link that does it in one tap ({{ channel }}):</p>
+  <div class="once" id="link-{{ channel }}">{{ link }}</div>
+  <p><button type="button" class="secondary small" data-copy="link-{{ channel }}">Copy link</button></p>
+  {% endfor %}
 </section>
 {% endblock %}
