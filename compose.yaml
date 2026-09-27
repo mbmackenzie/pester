@@ -1,7 +1,9 @@
 # Pester as a Dockge (or plain `docker compose`) stack. Paste this into a new Dockge stack.
 #
-# The image is built from the GitHub repo, so nothing has to be published. Once images are published,
-# replace `build:` with `image: ghcr.io/mbmackenzie/pester:latest`.
+# `:latest` is the newest release; Dockge's Update button pulls it. Pin a version (e.g. `:0.1.0`) to upgrade
+# on your own schedule, or use `:main` to follow every merged change. Images are published for amd64 and
+# arm64. To build from source instead, replace `image:` with
+# `build: https://github.com/mbmackenzie/pester.git#main`.
 #
 # Keep port 8000 on your LAN: the admin UI is not meant for the internet. Pester only needs outbound
 # access (your LLM provider and your messaging channels).
@@ -12,7 +14,7 @@
 
 services:
   pester:
-    build: https://github.com/mbmackenzie/pester.git#main
+    image: ghcr.io/mbmackenzie/pester:latest
     container_name: pester
     restart: unless-stopped
     ports:

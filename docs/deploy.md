@@ -4,8 +4,13 @@ Pester runs as a single container with a SQLite database in `/data`. The intende
 on your LAN, managed with [Dockge](https://github.com/louislam/dockge) (any Docker Compose setup works the
 same way).
 
-> Status: images are not published yet. The compose file builds the image straight from GitHub, so no
-> registry is involved. When images are published, swap `build:` for `image: ghcr.io/mbmackenzie/pester`.
+The image is `ghcr.io/mbmackenzie/pester`, for amd64 and arm64:
+
+| Tag | What it is |
+|---|---|
+| `:latest` | the newest release (what `compose.yaml` uses) |
+| `:0.1.0`, `:0.1` | a specific release, or the newest patch of a minor version |
+| `:main` | every change merged to `main`, as soon as CI passes |
 
 ## Network model
 
@@ -19,7 +24,7 @@ which is fine on a LAN and not fine on the internet.
 Everything after deploying happens in the browser.
 
 1. In Dockge, click **+ Compose**, name the stack `pester`, paste [`compose.yaml`](../compose.yaml), and
-   **Deploy**. The first deploy builds the image, which takes a minute or two.
+   **Deploy**. Dockge pulls the image and starts it.
 2. Open `http://<server>:8000/admin` and set the admin password. The setup code it asks for is in the
    stack's logs (see [Admin UI](#admin-ui)). The dashboard's **Getting started** checklist walks you through
    the rest.
@@ -84,7 +89,9 @@ Forgot the password? `docker compose exec pester pester admin reset-password`, r
 
 ## Updating
 
-To update, use **Update** in Dockge (or `docker compose build --pull && docker compose up -d`). Pending
+To update, use **Update** in Dockge (or `docker compose pull && docker compose up -d`). The running version
+is shown at the bottom of the admin UI's sidebar and in `GET /health`. Database migrations run
+automatically at startup; back up `./data` before a big jump. Pending
 work survives restarts; a message that was mid-send during a crash is never resent (see spec §12.1).
 
 ## Data and backups
@@ -125,3 +132,15 @@ The container runs as uid 1000. If `./data` was created by root, `chown 1000:100
 ```sh
 scripts/smoke-container.sh   # builds the image, configures it with the CLI, and runs one job through it
 ```
+
+## Releasing (maintainers)
+
+Every merge to `main` publishes `:main` once CI passes. To cut a release:
+
+1. Bump `version` in `pyproject.toml` (and `uv lock`), merge it.
+2. Tag that commit and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
+3. The **Publish image** workflow checks the tag matches `pyproject.toml`, runs CI, and pushes `:0.2.0`, `:0.2`,
+   and `:latest`. Optionally, write release notes: `gh release create v0.2.0 --generate-notes`.
+
+The package must be public for Dockge to pull it without logging in. That's a one-time setting on GitHub:
+the package's page → **Package settings** → **Change visibility** → Public.

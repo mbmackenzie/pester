@@ -24,6 +24,7 @@ from pester.evaluation.llm import LLMEvaluator
 from pester.runtime import Runtime
 from pester.state import AppState
 from pester.storage.repository import Repository
+from pester.version import VERSION
 
 router = APIRouter(prefix="/admin", include_in_schema=False)
 
@@ -154,6 +155,7 @@ async def render(
             "channels_ok": channels_ok,
             "pending_pairings": pending,
             "notice": notice,
+            "version": VERSION,
             **context,
         },
         status_code=status_code,
