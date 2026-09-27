@@ -5,7 +5,7 @@ from typing import Any
 
 from jinja2 import StrictUndefined, Template, TemplateError
 from jinja2.sandbox import SandboxedEnvironment
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from pester.personality.base import (
     FeedbackContext,
@@ -22,8 +22,16 @@ class TemplateOptions(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    feedback: str = "{{ feedback_facts }}"
-    prompt: str = "{{ prompt }}"
+    feedback: str = Field(
+        default="{{ feedback_facts }}",
+        description="Jinja template. Variables: feedback_facts, result, response, prompt, metadata.",
+        json_schema_extra={"multiline": True},
+    )
+    prompt: str = Field(
+        default="{{ prompt }}",
+        description="Jinja template for the question, when a job sets prompt_rendering: personality.",
+        json_schema_extra={"multiline": True},
+    )
 
 
 class TemplatePersonality:

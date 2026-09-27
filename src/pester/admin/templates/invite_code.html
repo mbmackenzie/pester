@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Invite for {{ recipient_id }}{% endblock %}
+{% block content %}
+<p><a href="/admin/recipients">← Recipients</a></p>
+<h1>Invite for {{ recipient_id }}</h1>
+<section class="card">
+  <p>Send this to them. They message it to Pester on any channel that accepts pairing. It works once, for
+  {{ days }} day{{ "s" if days != 1 }}, and <strong>isn't shown again</strong>.</p>
+  <div class="once" id="invite">/start {{ code }}</div>
+  <p><button type="button" class="secondary small" data-copy="invite">Copy</button></p>
+</section>
+{% endblock %}

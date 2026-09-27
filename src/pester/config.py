@@ -126,31 +126,50 @@ class ChannelConfig(BaseModel):
 class LLMConfig(_Strict):
     """OpenAI-compatible provider settings. The API key comes from ``OPENAI_API_KEY``, never from here."""
 
-    model: str = "gpt-5-mini"
-    base_url: str | None = None
-    response_format: Literal["json_schema", "json_object"] = "json_schema"
-    temperature: float | None = None
-    max_attempts: int = Field(default=3, ge=1, le=10)
+    model: str = Field(default="gpt-5-mini", description="Used for evaluation and LLM personalities.")
+    base_url: str | None = Field(
+        default=None, description="For another OpenAI-compatible provider, e.g. https://openrouter.ai/api/v1."
+    )
+    response_format: Literal["json_schema", "json_object"] = Field(
+        default="json_schema", description="json_object for providers without JSON Schema support."
+    )
+    temperature: float | None = Field(default=None, description="Blank: the provider's default.")
+    max_attempts: int = Field(default=3, ge=1, le=10, description="Tries per evaluation before it fails.")
     timeout_seconds: float = Field(default=60, gt=0)
 
 
 class SchedulerConfig(_Strict):
     quiet_hours: QuietHours | None = QuietHours(start=time(21, 0), end=time(8, 30))
-    min_interval_minutes: int = Field(default=120, ge=0)
-    max_messages_per_day: int = Field(default=4, ge=1)
-    max_outstanding: int = Field(default=1, ge=1)
-    jitter_minutes: int = Field(default=30, ge=0)
-    jitter_seed: str = "pester"  # jitter is a deterministic function of this seed, so it survives restarts
-    max_snooze_hours: int = Field(default=168, gt=0)
-    default_answer_within_seconds: int = Field(default=86_400, gt=0)
-    debounce_seconds: int = Field(default=20, ge=0)
+    min_interval_minutes: int = Field(
+        default=120, ge=0, description="Least time between two questions to one person."
+    )
+    max_messages_per_day: int = Field(default=4, ge=1, description="Per person, per day in their timezone.")
+    max_outstanding: int = Field(
+        default=1, ge=1, description="Unanswered questions one person can have at once."
+    )
+    jitter_minutes: int = Field(
+        default=30, ge=0, description="Random delay, so questions don't arrive like clockwork."
+    )
+    # Jitter is a deterministic function of this seed, so send times survive restarts.
+    jitter_seed: str = Field(default="pester", description="Changing it reshuffles the random delays.")
+    max_snooze_hours: int = Field(default=168, gt=0, description="The longest /snooze a person can ask for.")
+    default_answer_within_seconds: int = Field(
+        default=86_400,
+        gt=0,
+        description="After this, an unanswered question closes, unless the job says otherwise.",
+    )
+    debounce_seconds: int = Field(
+        default=20, ge=0, description="Wait this long for more messages before evaluating an answer."
+    )
 
 
 class DeliveryConfig(_Strict):
     """Retries for sends that failed without reaching the person."""
 
     max_attempts: int = Field(default=5, ge=1)
-    backoff_seconds: float = Field(default=5, gt=0)  # doubles each attempt
+    backoff_seconds: float = Field(
+        default=5, gt=0, description="Wait before the first retry; doubles each time."
+    )
     max_backoff_seconds: float = Field(default=600, gt=0)
 
 

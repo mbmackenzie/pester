@@ -16,54 +16,32 @@ which is fine on a LAN and not fine on the internet.
 
 ## Dockge walkthrough
 
+Everything after deploying happens in the browser.
+
 1. In Dockge, click **+ Compose**, name the stack `pester`, paste [`compose.yaml`](../compose.yaml), and
    **Deploy**. The first deploy builds the image, which takes a minute or two.
 2. Open `http://<server>:8000/admin` and set the admin password. The setup code it asks for is in the
-   stack's logs (see [Admin UI](#admin-ui)).
-3. Configure Pester. Config lives in the database, so there's no file to edit. Until the admin UI's edit
-   forms land, use the CLI inside the container. In Dockge, open the stack's terminal (or run
-   `docker compose exec pester sh` on the server):
+   stack's logs (see [Admin UI](#admin-ui)). The dashboard's **Getting started** checklist walks you through
+   the rest.
+3. **Add a channel.** Channels → Add a channel → `mock` (a messenger built into Pester, for trying it out).
+4. **Pair yourself.** Messenger → **New address**, type a name (say `me`), and send `/start`. Pester replies
+   that it has asked the admin. Recipients now shows the request: pick an id and your timezone, and
+   **Approve**. A welcome message arrives in the Messenger. (To skip approval, create an invite on the
+   Recipients page instead; whoever sends `/start <code>` is paired directly.)
+5. **Create a client key.** Clients → New client, allowed to message `me`. The token is shown once, with a
+   ready-to-run `curl` command.
+6. **Go.** Run that `curl` command (or point your producer at Pester with the token), and answer the question
+   in the Messenger.
 
-   ```sh
-   pester channel add mock --type mock          # a messenger built into Pester, for trying it out
-   pester llm key                               # optional: paste an OpenAI key for LLM grading
-   ```
-
-4. **Pair yourself.** In the admin UI, open **Messenger**, choose **New address**, type a name (say `me`),
-   and send `/start`. Pester replies that it has asked the admin, and the request appears under
-   **Recipients**. Approve it:
-
-   ```sh
-   pester pairing list
-   pester pairing approve 1 --as me --timezone America/New_York
-   ```
-
-   A welcome message arrives in the Messenger within a few seconds. (To skip approval, give someone an
-   invite instead: `pester invite create me`, then they send `/start <code>`.)
-
-5. **Create a client key** for the producer that will send jobs:
-
-   ```sh
-   pester client create study-app --recipient me    # prints the token once
-   ```
-
-6. **Go.** Submit a job with that token, and answer it in the Messenger:
-
-   ```sh
-   curl -H "Authorization: Bearer <token>" -H 'content-type: application/json' \
-     -d '{"recipient_id":"me","prompt":"Did you water the plants?","response_options":["Yes","No"],"evaluation":{"evaluator":"rule","prompt":"match"}}' \
-     http://<server>:8000/api/v1/jobs
-   ```
-
-   With an LLM key set, use `"evaluation": {"prompt": "..."}` for LLM grading instead of `rule`. Pacing is
-   production-like by default (quiet hours, spacing, a daily cap); to see questions right away while
-   trying it out: `pester settings set scheduler.quiet_hours=null scheduler.min_interval_minutes=0
-   scheduler.jitter_minutes=0`.
+Optional: add an LLM API key under Settings (and **Test connection**) for LLM grading and LLM personalities.
+Pacing is production-like by default (quiet hours, spacing, a daily cap); while trying things out, clear the
+quiet hours and set the minimum interval and jitter to 0 under Settings → Pacing.
 
 ## Managing config
 
-Every change is saved as a new config version in the database and takes effect within a few seconds, with
-no restart. `pester --help` lists everything; the main commands:
+Every change, from the admin UI or the CLI, is saved as a new config version in the database and takes
+effect within a few seconds, with no restart. The CLI is handy for scripting and for the container's
+terminal (`docker compose exec pester pester …`); `pester --help` lists everything. The main commands:
 
 | Command | What it does |
 |---|---|
@@ -93,10 +71,11 @@ logs at startup (Dockge's log view, or `docker compose logs pester`):
 WARNING pester.admin.auth: Admin UI is not set up. Open /admin/setup and enter code K7QF-2MXD
 ```
 
-Then choose the admin password. The UI has a dashboard (queue counts, health, recent activity), a job
-browser with each job's full timeline and evaluation audit, a **Messenger** page where you can be a
-recipient on a mock channel, personality preview, pending pairing requests, and pause/resume per recipient.
-Clients, recipients, channels, and settings are read-only there for now, with the CLI command for each.
+Then choose the admin password. From there you can manage everything: channels (with forms generated from
+each channel type's settings, and write-only secrets), recipients and pairing requests, invites, clients and
+their tokens, personalities (with a live preview), pacing, the LLM and its key, and config history. There's
+also a dashboard (queue counts, health, recent activity), a job browser with each job's full timeline and
+evaluation audit, and a **Messenger** page where you can be a recipient on a mock channel.
 
 Forgot the password? `docker compose exec pester pester admin reset-password`, restart, and set a new one.
 

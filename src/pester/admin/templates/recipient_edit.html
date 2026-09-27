@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, error_box, timezone_input with context %}
+{% block title %}{{ recipient_id }}{% endblock %}
+{% block content %}
+<p><a href="/admin/recipients">← Recipients</a></p>
+<h1>{{ recipient_id }}</h1>
+{{ error_box(error) }}
+<div class="columns">
+<section class="card">
+  <h3>Schedule</h3>
+  <form method="post" action="/admin/recipients/{{ recipient_id }}" class="stack">
+    {{ csrf() }}
+    <label>Timezone {{ timezone_input("timezone", recipient.timezone, timezones) }}</label>
+    <label>Quiet hours <input name="quiet" value="{{ quiet }}" placeholder="blank: use the global setting">
+      <span class="help">In their timezone, e.g. 22:00-09:00. Nothing is sent then.</span></label>
+    <div><button>Save</button></div>
+  </form>
+</section>
+<section class="card">
+  <h3>Who may message them</h3>
+  {% for c in allowed_clients %}<span class="chip">{{ c }}</span>{% else %}<p class="muted">No client yet.</p>{% endfor %}
+  <p class="note">Change this on the <a href="/admin/clients">client's page</a>.</p>
+</section>
+</div>
+<section class="card">
+  <h3>Channels</h3>
+  <p>How Pester reaches {{ recipient_id }}. Pairing adds these automatically.</p>
+  {% if links %}
+  <table>
+    {% for name, settings in links %}
+    <tr><td><strong>{{ name }}</strong></td><td><code>{{ settings }}</code></td>
+      <td class="right"><form method="post" action="/admin/recipients/{{ recipient_id }}/unlink" onsubmit="return confirm('Stop reaching {{ recipient_id }} on {{ name }}?')">
+        {{ csrf() }}<input type="hidden" name="channel" value="{{ name }}"><button class="small secondary">Unlink</button></form></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="error-text">No channels: Pester can't reach {{ recipient_id }} yet.</p>{% endif %}
+  <form method="post" action="/admin/recipients/{{ recipient_id }}/link" class="row-form spaced">
+    {{ csrf() }}
+    <label>Channel
+      <select name="channel">{% for c in channel_names %}<option>{{ c }}</option>{% endfor %}</select></label>
+    <label>Settings <input name="settings" placeholder="address: {{ recipient_id }}">
+      <span class="help">YAML. A mock channel needs <code>address: …</code>.</span></label>
+    <button class="secondary">Link</button>
+  </form>
+</section>
+<section class="card danger-zone">
+  <h3>Remove</h3>
+  <p>Removes {{ recipient_id }} and takes them off every client. Their job history stays.</p>
+  <form method="post" action="/admin/recipients/{{ recipient_id }}/delete" onsubmit="return confirm('Remove {{ recipient_id }}?')">
+    {{ csrf() }}<button class="danger">Remove {{ recipient_id }}</button>
+  </form>
+</section>
+{% endblock %}

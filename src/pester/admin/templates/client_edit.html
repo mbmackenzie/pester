@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, checkboxes, error_box with context %}
+{% block title %}{{ client_id }}{% endblock %}
+{% block content %}
+<p><a href="/admin/clients">← Clients</a></p>
+<h1>{{ client_id }}</h1>
+<section class="card">
+  {{ error_box(error) }}
+  <form method="post" action="/admin/clients/{{ client_id }}" class="stack">
+    {{ csrf() }}
+    <div><strong class="small">Permissions</strong>{{ checkboxes("permissions", permissions, client.permissions) }}</div>
+    <div><strong class="small">May message</strong>{{ checkboxes("recipients", recipients, client.recipients) }}</div>
+    <div><button>Save</button></div>
+  </form>
+</section>
+<section class="card danger-zone">
+  <h3>Token</h3>
+  <p>Pester stores only a hash of the token, so a lost token can't be shown again. Issue a new one instead.</p>
+  <div class="actions" style="justify-content: flex-start">
+    <form method="post" action="/admin/clients/{{ client_id }}/rotate" onsubmit="return confirm('The current token stops working immediately.')">{{ csrf() }}<button class="secondary">New token</button></form>
+    <form method="post" action="/admin/clients/{{ client_id }}/revoke" onsubmit="return confirm('Revoke {{ client_id }}?')">{{ csrf() }}<button class="danger">Revoke client</button></form>
+  </div>
+</section>
+{% endblock %}

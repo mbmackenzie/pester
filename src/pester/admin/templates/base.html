@@ -21,6 +21,7 @@
       <a href="{{ href }}" class="{{ 'active' if (path == href or (href != '/admin' and path.startswith(href))) }}">
         {{ label }}
         {% if href == "/admin/channels" %}<span class="dot {{ 'ok' if channels_ok else 'bad' }}"></span>{% endif %}
+        {% if href == "/admin/recipients" and pending_pairings %}<span class="badge" title="pending pairing requests">{{ pending_pairings }}</span>{% endif %}
       </a>
     {% endfor %}
     <form method="post" action="/admin/logout" class="logout">
@@ -29,6 +30,7 @@
     </form>
   </nav>
   <main>
+    {% if notice %}<p class="success notice">{{ notice }}</p>{% endif %}
     {% block content %}{% endblock %}
   </main>
 </div>

@@ -1,39 +1,11 @@
-import re
-
 import httpx
 import pytest
 from fastapi import FastAPI
 
-from pester.admin.auth import AdminAuth, hash_password, verify_password
+from pester.admin.auth import hash_password, verify_password
 from pester.runtime import Runtime
+from tests.admin.conftest import PASSWORD, admin_auth, set_up
 from tests.conftest import TOKEN_A, auth, job_payload
-
-PASSWORD = "correct horse battery"
-
-
-def admin_auth(app: FastAPI) -> AdminAuth:
-    return app.state.admin
-
-
-def csrf_of(html: str) -> str:
-    match = re.search(r'name="csrf" value="([^"]+)"', html)
-    assert match, "page has no CSRF token"
-    return match.group(1)
-
-
-async def set_up(client: httpx.AsyncClient, app: FastAPI) -> str:
-    """Complete first-run setup; the client is now signed in. Returns a CSRF token."""
-    resp = await client.post(
-        "/admin/setup",
-        data={"code": admin_auth(app).setup_code, "password": PASSWORD, "confirm": PASSWORD},
-    )
-    assert resp.status_code == 303, resp.text
-    return csrf_of((await client.get("/admin")).text)
-
-
-@pytest.fixture
-async def signed_in(client: httpx.AsyncClient, app: FastAPI) -> str:
-    return await set_up(client, app)
 
 
 def test_password_hashing_round_trips() -> None:
@@ -349,6 +321,6 @@ async def test_preview_reports_bad_input(client: httpx.AsyncClient, signed_in: s
 async def test_pending_pairings_are_listed(client: httpx.AsyncClient, app: FastAPI, signed_in: str) -> None:
     await client.post("/admin/chat/zoe", data={"text": "/start"}, headers={"X-CSRF-Token": signed_in})
     page = (await client.get("/admin/recipients")).text
-    assert "Pending pairing requests" in page
+    assert "Pairing requests" in page
     assert "zoe" in page
-    assert "pester pairing approve" in page
+    assert "/admin/pairings/" in page  # the approve form

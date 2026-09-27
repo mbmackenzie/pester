@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, error_box, option_field with context %}
+{% block title %}{{ personality_id or "New personality" }}{% endblock %}
+{% block content %}
+<p><a href="/admin/personalities">← Personalities</a></p>
+<h1>{% if personality_id %}{{ personality_id }}{% else %}New {{ personality_type }} personality{% endif %}</h1>
+<section class="card">
+  {{ error_box(error) }}
+  <form method="post" action="{{ '/admin/personalities/' ~ personality_id if personality_id else '/admin/personalities' }}" class="stack" style="max-width: 720px">
+    {{ csrf() }}
+    <input type="hidden" name="type" value="{{ personality_type }}">
+    {% if not personality_id %}
+    <label>Id <input name="id" value="{{ values.id or '' }}" required autocomplete="off" placeholder="judgmental-houseplant">
+      <span class="help">What producers put in <code>personality_id</code>.</span></label>
+    {% endif %}
+    <label>Description <input name="description" value="{{ values.description or '' }}" placeholder="A fern with opinions">
+      <span class="help">Shown to producers by <code>GET /api/v1/personalities</code>.</span></label>
+    {% if fields is not none %}
+      {% for f in fields %}{{ option_field(f) }}{% else %}<p class="muted">This type has no options.</p>{% endfor %}
+    {% else %}
+      <label>Options <span class="muted">(YAML)</span><textarea name="options_yaml" rows="8">{{ options_yaml }}</textarea>
+        <span class="help">Passed to <code>{{ personality_type }}</code>.</span></label>
+    {% endif %}
+    <div><button>{{ "Save" if personality_id else "Create" }}</button></div>
+  </form>
+  <p class="note">Saving checks the personality can be built (e.g. that templates parse). Try it with the preview on the
+  <a href="/admin/personalities">Personalities</a> page.</p>
+</section>
+{% endblock %}

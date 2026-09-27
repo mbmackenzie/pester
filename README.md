@@ -18,8 +18,8 @@ Status: pre-alpha. The full loop runs locally on a built-in mock channel, with L
 
 ## Try it locally
 
-Config lives in a SQLite database and is managed with the `pester` CLI or the admin UI; no config file is
-needed. Dev mode adds the echo evaluator, so `llm` evaluations work without an API key (add
+Config lives in a SQLite database and is managed in the admin UI (`/admin`) or with the `pester` CLI; no
+config file is needed. The steps below use the CLI; [docs/deploy.md](docs/deploy.md) does the same in the browser. Dev mode adds the echo evaluator, so `llm` evaluations work without an API key (add
 `OPENAI_API_KEY=...` to a `.env` file, gitignored, for real grading and LLM personalities).
 
 ```sh

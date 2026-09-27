@@ -3,7 +3,8 @@
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
-from pester.admin.views import AdminRedirect, redirect, router
+from pester.admin.manage import router  # importing manage registers the config pages on the router
+from pester.admin.views import AdminRedirect, redirect
 
 
 def install(app: FastAPI) -> None:

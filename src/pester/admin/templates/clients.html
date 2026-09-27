@@ -1,30 +1,42 @@
 {% extends "base.html" %}
-{% from "_macros.html" import readonly_note %}
+{% from "_macros.html" import csrf, checkboxes, error_box with context %}
 {% block title %}Clients{% endblock %}
 {% block content %}
 <h1>Clients</h1>
 <p>Clients are the producers that submit jobs and read events through <code>/api/v1</code> with a bearer token.</p>
-{{ readonly_note("pester client create study-app --recipient kate") }}
 <section class="card flush">
 {% if clients %}
 <table>
-  <thead><tr><th>Client</th><th>Permissions</th><th>May message</th></tr></thead>
+  <thead><tr><th>Client</th><th>Permissions</th><th>May message</th><th></th></tr></thead>
   {% for id, c in clients %}
   <tr>
-    <td><strong>{{ id }}</strong></td>
+    <td><a href="/admin/clients/{{ id }}"><strong>{{ id }}</strong></a></td>
     <td>{% for p in c.permissions | sort %}<span class="chip">{{ p }}</span>{% endfor %}</td>
     <td>{% for r in c.recipients | sort %}<span class="chip">{{ r }}</span>{% else %}<span class="muted">nobody</span>{% endfor %}</td>
+    <td><div class="actions">
+      <a href="/admin/clients/{{ id }}">Edit</a>
+      <form method="post" action="/admin/clients/{{ id }}/rotate" onsubmit="return confirm('Issue a new token for {{ id }}? The current one stops working immediately.')">{{ csrf() }}<button class="small secondary">New token</button></form>
+      <form method="post" action="/admin/clients/{{ id }}/revoke" onsubmit="return confirm('Revoke {{ id }}? Its token stops working immediately.')">{{ csrf() }}<button class="small danger">Revoke</button></form>
+    </div></td>
   </tr>
   {% endfor %}
 </table>
 {% else %}
-<p class="muted pad">No clients yet.</p>
+<p class="muted pad">No clients yet. Create one below to get a token for your producer.</p>
 {% endif %}
 </section>
+
 <section class="card">
-  <h3>Adding a client</h3>
-  <p><code>pester client create NAME --recipient RECIPIENT</code> prints the client's token once. Give it to the
-  producer; Pester keeps only its hash. <code>pester client rotate NAME</code> replaces a lost token, and
-  <code>pester client revoke NAME</code> removes the client.</p>
+  <h3>New client</h3>
+  {{ error_box(error) }}
+  <form method="post" action="/admin/clients" class="stack">
+    {{ csrf() }}
+    <label>Name <input name="id" value="{{ form.id }}" required placeholder="study-app" autocomplete="off">
+      <span class="help">Letters, digits, and . _ : - (the producer never sees this; it's for you).</span></label>
+    <div><strong class="small">Permissions</strong>{{ checkboxes("permissions", permissions, form.permissions) }}</div>
+    <div><strong class="small">May message</strong>{{ checkboxes("recipients", recipients, form.recipients) }}
+      <span class="help">You can change this later, e.g. after pairing someone new.</span></div>
+    <div><button>Create client</button></div>
+  </form>
 </section>
 {% endblock %}

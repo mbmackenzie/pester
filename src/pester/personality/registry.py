@@ -5,6 +5,8 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 
+from pydantic import BaseModel
+
 from pester.config import PesterConfig
 from pester.personality.base import (
     FeedbackContext,
@@ -14,13 +16,19 @@ from pester.personality.base import (
     PersonalityServices,
     PromptContext,
 )
-from pester.personality.llm import llm
-from pester.personality.neutral import neutral
-from pester.personality.template import template
+from pester.personality.llm import LLMPersonalityOptions, llm
+from pester.personality.neutral import NeutralOptions, neutral
+from pester.personality.template import TemplateOptions, template
 
 log = logging.getLogger(__name__)
 
 BUILTINS: Mapping[str, PersonalityFactory] = {"neutral": neutral, "template": template, "llm": llm}
+# Options models of the built-in types, for admin UI forms.
+BUILTIN_OPTIONS: Mapping[str, type[BaseModel]] = {
+    "neutral": NeutralOptions,
+    "template": TemplateOptions,
+    "llm": LLMPersonalityOptions,
+}
 
 
 @dataclass(frozen=True)
