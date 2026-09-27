@@ -7,7 +7,7 @@
 {%- endmacro %}
 
 {% macro error_box(message) -%}
-  {% if message %}<p class="error">{{ message }}</p>{% endif %}
+  {% if message %}<p class="error" role="alert">{{ message }}</p>{% endif %}
 {%- endmacro %}
 
 {# A field generated from an options model (see admin/forms.py). #}
@@ -60,4 +60,29 @@
 {% macro timezone_input(name, value, timezones) -%}
   <input name="{{ name }}" value="{{ value }}" list="timezones" placeholder="America/New_York" autocomplete="off" data-default-tz>
   <datalist id="timezones">{% for tz in timezones %}<option>{{ tz }}</option>{% endfor %}</datalist>
+{%- endmacro %}
+
+{% macro icon(name) -%}
+<svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{% if name == "overview" %}<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+{% elif name == "jobs" %}<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 16h4"/>
+{% elif name == "chat" %}<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2v-9.5A8.5 8.5 0 0 1 10.5 4h2a8.5 8.5 0 0 1 8.5 7.5Z"/><path d="M7 10h9M7 14h6"/>
+{% elif name == "people" %}<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M21 21v-3a6 6 0 0 0-3-5"/>
+{% elif name == "channels" %}<path d="m10 13 4-4M8 16l-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M14 8l2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0" transform="translate(1 0)"/>
+{% elif name == "clients" %}<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 22h8M12 18v4m-4-14 3 3-3 3m6 0h3"/>
+{% elif name == "personality" %}<circle cx="12" cy="12" r="9"/><path d="M8 14a4 4 0 0 0 8 0M8 9h.01M16 9h.01"/>
+{% elif name == "settings" %}<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--panel)"/><circle cx="16" cy="17" r="3" fill="var(--panel)"/>
+{% elif name == "server" %}<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/>
+{% elif name == "logout" %}<path d="M9 4H4v16h5M10 12h11m-4-4 4 4-4 4"/>
+{% elif name == "arrow" %}<path d="M5 12h14m-5-5 5 5-5 5"/>
+{% elif name == "plus" %}<path d="M12 5v14M5 12h14"/>
+{% endif %}
+</svg>
+{%- endmacro %}
+
+{% macro page_header(title, description, action_href=none, action_label=none) -%}
+<header class="page-header">
+  <div><p class="eyebrow">Pester administration</p><h1>{{ title }}</h1><p class="page-description">{{ description }}</p></div>
+  {% if action_href %}<a class="button" href="{{ action_href }}">{{ icon("plus") }} {{ action_label }}</a>{% endif %}
+</header>
 {%- endmacro %}

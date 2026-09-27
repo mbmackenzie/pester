@@ -157,6 +157,7 @@ class AdminQueries:
         client_id: str | None = None,
         before: int | None = None,
         limit: int = 50,
+        outstanding: bool = False,
     ) -> tuple[list[JobRow], int | None]:
         """Newest first. Returns the page and the ``before`` cursor for the next one (None on the last)."""
         where: list[str] = []
@@ -168,6 +169,9 @@ class AdminQueries:
         if before is not None:
             where.append("pk < ?")
             params.append(before)
+        if outstanding:
+            where.append(f"status IN ({','.join('?' for _ in _OUTSTANDING)})")
+            params.extend(_OUTSTANDING)
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         async with self._db.read() as conn:
             rows = await conn.execute_fetchall(

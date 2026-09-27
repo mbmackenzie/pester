@@ -1,33 +1,35 @@
-{% from "_macros.html" import status %}
+{% from "_macros.html" import status, icon %}
+<div class="section-heading"><h2>Message activity</h2><span class="poll-status">Refreshes every 10 seconds</span><span class="poll-error error-text small" role="status">Updates paused. Reconnecting…</span></div>
 <div class="tiles">
-  <a class="tile" href="/admin/jobs?status=QUEUED"><span>Queued</span><strong>{{ counts.queued }}</strong></a>
-  <a class="tile" href="/admin/jobs?status=AWAITING"><span>Outstanding</span><strong>{{ counts.outstanding }}</strong></a>
-  <a class="tile" href="/admin/jobs?status=COMPLETED"><span>Completed (24h)</span><strong>{{ counts.completed_since }}</strong></a>
-  <a class="tile {{ 'warn' if counts.failed_since }}" href="/admin/jobs?status=FAILED"><span>Failed (24h)</span><strong>{{ counts.failed_since }}</strong></a>
+  <a class="tile" href="/admin/jobs?status=QUEUED"><span>Queued</span><strong>{{ counts.queued }}</strong><span class="tile-hint">Waiting to send</span></a>
+  <a class="tile" href="/admin/jobs?outstanding=true"><span>In progress</span><strong>{{ counts.outstanding }}</strong><span class="tile-hint">Delivery, reply, or evaluation</span></a>
+  <a class="tile" href="/admin/jobs?status=COMPLETED"><span>Completed</span><strong>{{ counts.completed_since }}</strong><span class="tile-hint">In the last 24 hours</span></a>
+  <a class="tile {{ 'warn' if counts.failed_since }}" href="/admin/jobs?status=FAILED"><span>Failed</span><strong>{{ counts.failed_since }}</strong><span class="tile-hint">In the last 24 hours</span></a>
 </div>
 <section class="card">
-  <h3>Health</h3>
+  <div class="section-heading"><h2>Server health</h2><a href="/admin/channels">Manage channels {{ icon("arrow") }}</a></div>
   <ul class="health">
-    <li><span class="dot {{ 'ok' if checks.database.ok else 'bad' }}"></span>database</li>
+    <li><span class="dot {{ 'ok' if checks.database.ok else 'bad' }}" aria-hidden="true"></span>Database<small>{{ 'Connected' if checks.database.ok else 'Needs attention' }}</small></li>
     {% if checks.workers %}
       {% for name in ["scheduler", "delivery", "evaluation"] %}
-        <li title="{{ checks.workers[name].last_error or '' }}">
-          <span class="dot {{ 'ok' if checks.workers[name].running and not checks.workers[name].last_error else 'bad' }}"></span>{{ name }}
-        </li>
+        {% set healthy = checks.workers[name].running and not checks.workers[name].last_error %}
+        <li title="{{ checks.workers[name].last_error or '' }}"><span class="dot {{ 'ok' if healthy else 'bad' }}" aria-hidden="true"></span>{{ name | capitalize }}<small>{{ 'Running' if healthy else 'Needs attention' }}</small></li>
       {% endfor %}
     {% endif %}
     {% for name in checks.channels.enabled %}
-      <li><span class="dot {{ 'ok' if name in checks.channels.started else 'bad' }}"></span>{{ "mock" if name == "fake" else name }}</li>
+      <li><span class="dot {{ 'ok' if name in checks.channels.started else 'bad' }}" aria-hidden="true"></span>{{ "mock" if name == "fake" else name }}<small>{{ 'Connected' if name in checks.channels.started else 'Not running' }}</small></li>
     {% else %}
-      <li><span class="dot bad"></span>no channels</li>
+      <li><span class="dot idle" aria-hidden="true"></span>Channels<small><a href="/admin/channels#add-channel">Add your first channel</a></small></li>
     {% endfor %}
-    <li><span class="dot {{ 'ok' if llm_live else 'idle' }}"></span>llm {{ llm_model if llm_live else "(echo mode)" }}</li>
+    <li><span class="dot {{ 'ok' if llm_live else 'idle' }}" aria-hidden="true"></span>Evaluation model<small>{{ llm_model if llm_live else ("Echo mode" if "llm" in checks.evaluators.registered else "Not configured") }}</small></li>
   </ul>
 </section>
-<section class="card">
-  <h3>Recent activity</h3>
+<section class="card flush">
+  <div class="section-heading pad"><h2>Recent activity</h2><a href="/admin/jobs">View all jobs {{ icon("arrow") }}</a></div>
   {% if activity %}
   <table>
+    <thead><tr><th scope="col">Time</th><th scope="col">Recipient</th><th scope="col">Status</th><th scope="col">Question</th></tr></thead>
+    <tbody>
     {% for a in activity %}
     <tr>
       <td class="muted nowrap">{{ a.occurred_at | dt }}</td>
@@ -36,8 +38,9 @@
       <td><a href="/admin/jobs/{{ a.client_id }}/{{ a.job_id }}">{{ a.prompt | truncate_text(70) }}</a></td>
     </tr>
     {% endfor %}
+    </tbody>
   </table>
   {% else %}
-  <p class="muted">Nothing yet. Once a producer submits a job, its lifecycle shows up here.</p>
+  <div class="empty-state">{{ icon("chat") }}<h3>Ready for your first conversation</h3><p>Once a producer submits a job, its questions, replies, and results appear here.</p><a href="/admin/clients#new-client">Connect an app {{ icon("arrow") }}</a></div>
   {% endif %}
 </section>

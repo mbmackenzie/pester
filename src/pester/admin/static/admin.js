@@ -70,3 +70,11 @@ document.addEventListener("click", async (event) => {
     button.textContent = "Selected; press Ctrl+C";
   }
 });
+
+// Keep the dashboard honest when a home server briefly goes offline.
+document.body.addEventListener("htmx:afterRequest", (event) => {
+  const overview = document.getElementById("overview");
+  if (overview && event.detail.elt.id === "overview") {
+    overview.classList.toggle("poll-failed", !event.detail.successful);
+  }
+});

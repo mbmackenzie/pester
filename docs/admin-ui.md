@@ -18,7 +18,7 @@ Deploy in Dockge → open http://server:8000/admin → set a password → add a 
 - **Same process, same port.** The UI lives at `/admin` in the FastAPI app, with no separate service.
 - **No JS build step.** Server-rendered Jinja templates plus [htmx](https://htmx.org), both vendored into
   the package so the UI works on a network without internet access. There's one small hand-written
-  stylesheet with a dark mode through `prefers-color-scheme`.
+  stylesheet with a dark palette, neutral surfaces, and a restrained sage accent.
 - **Nothing channel-specific in the UI.** Channel pages are generated from each adapter's declared config
   schema. The mock channel and Telegram use the same screens.
 - **The UI calls the admin service layer, not the database.** M6's service layer (create, update, delete,
@@ -263,3 +263,21 @@ migrations/006_admin.sql   admin_settings, admin_sessions
 Tests use `httpx.AsyncClient`: setup-code flow, login/logout, CSRF rejection, redirects when logged out,
 each page renders, and chat round-trips through the fake channel. There's no browser automation. Pages are
 checked by status and key content.
+
+## 9. Admin design pass
+
+The desktop layout groups navigation into Overview, Connections, and Preferences. Channels, recipient
+invitations, and app connections have direct dashboard shortcuts and primary page actions. The small-screen
+layout keeps every navigation section visible and lets wide tables scroll within their cards.
+
+Page headers explain the task; settings have section links; custom adapter and personality entry points
+sit under expandable advanced options. Status text accompanies health colors, keyboard focus is visible,
+and a skip link leads directly to the page content. Dashboard polling reports interrupted updates.
+
+The in-progress dashboard count links to all four outstanding job states (sending, awaiting, answered,
+and evaluated). Job filters support an empty status from the browser form and an explicit in-progress
+filter, including when paging.
+
+Validation includes the admin integration suite and temporary Chromium checks of the main pages at
+1440, 390, and 320 pixels, plus the channel, recipient, invite, and client-token flows. Browser tooling is
+used for local verification only; no frontend build step or browser dependency is added to Pester.

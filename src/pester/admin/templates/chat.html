@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Messenger{% endblock %}
+{% from "_macros.html" import page_header %}
 {% block content %}
-<h1>Messenger</h1>
+{{ page_header('Messenger', 'Try a conversation using a built-in mock channel.') }}
 {% if not channel %}
 <section class="card">
   <p>No mock channel is running. Add one on the <a href="/admin/channels">Channels</a> page (type
@@ -45,8 +46,8 @@
   <form class="composer" hx-post="/admin/chat/{{ address }}?channel={{ channel.name }}" hx-target="#chat-log" hx-swap="outerHTML"
         hx-on::after-request="if (event.detail.successful) { this.reset(); clearReply(); }">
     <input type="hidden" name="reply_to" id="reply-to">
-    <div class="replying" id="replying" hidden>Replying to <span></span> <button type="button" class="link" onclick="clearReply()">×</button></div>
-    <input name="text" placeholder="Type a reply…" autocomplete="off" autofocus>
+    <div class="replying" id="replying" hidden>Replying to <span></span> <button type="button" class="link" onclick="clearReply()" aria-label="Cancel reply">×</button></div>
+    <input name="text" aria-label="Message" placeholder="Type a reply…" autocomplete="off" autofocus>
     <button>Send</button>
   </form>
 </section>

@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf, checkboxes, error_box with context %}
 {% block title %}Clients{% endblock %}
+{% from "_macros.html" import page_header %}
 {% block content %}
-<h1>Clients</h1>
-<p>Clients are the producers that submit jobs and read events through <code>/api/v1</code> with a bearer token.</p>
+{{ page_header('Clients', 'Connect the apps that send questions to Pester and choose who they can message.', '#new-client', 'Connect an app') }}
+
 <section class="card flush">
 {% if clients %}
 <table>
-  <thead><tr><th>Client</th><th>Permissions</th><th>May message</th><th></th></tr></thead>
+  <thead><tr><th>Client</th><th>Permissions</th><th>May message</th><th><span class="sr-only">Actions</span></th></tr></thead>
   {% for id, c in clients %}
   <tr>
     <td><a href="/admin/clients/{{ id }}"><strong>{{ id }}</strong></a></td>
@@ -26,8 +27,9 @@
 {% endif %}
 </section>
 
-<section class="card">
-  <h3>New client</h3>
+<section class="card" id="new-client">
+  <h2>Connect an app</h2>
+  <p class="muted">Create a client to give your app its own API token. You’ll copy the token on the next screen.</p>
   {{ error_box(error) }}
   <form method="post" action="/admin/clients" class="stack">
     {{ csrf() }}

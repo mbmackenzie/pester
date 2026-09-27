@@ -3,41 +3,56 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>{% block title %}Pester{% endblock %} · Pester</title>
   <link rel="stylesheet" href="/admin/static/admin.css">
   <script src="/admin/static/htmx.min.js" defer></script>
   <script src="/admin/static/admin.js" defer></script>
 </head>
 <body{% if admin %} hx-headers='{"X-CSRF-Token": "{{ admin.csrf_token }}"}'{% endif %}>
+<a href="#main" class="skip-link">Skip to content</a>
 {% if admin %}
 <div class="shell">
-  <nav class="sidebar">
-    <a class="brand" href="/admin">pester</a>
-    {% set items = [
-      ("/admin", "Dashboard"), ("/admin/jobs", "Jobs"), ("/admin/chat", "Messenger"),
-      ("/admin/recipients", "Recipients"), ("/admin/clients", "Clients"), ("/admin/channels", "Channels"),
-      ("/admin/personalities", "Personalities"), ("/admin/settings", "Settings")] %}
-    {% for href, label in items %}
-      <a href="{{ href }}" class="{{ 'active' if (path == href or (href != '/admin' and path.startswith(href))) }}">
-        {{ label }}
-        {% if href == "/admin/channels" %}<span class="dot {{ 'ok' if channels_ok else 'bad' }}"></span>{% endif %}
-        {% if href == "/admin/recipients" and pending_pairings %}<span class="badge" title="pending pairing requests">{{ pending_pairings }}</span>{% endif %}
-      </a>
+  <aside class="sidebar">
+    <a class="brand" href="/admin"><span class="brand-mark" aria-hidden="true">p<span>·</span></span><span>pester<span class="brand-caption">Home server admin</span></span></a>
+    <nav aria-label="Main navigation">
+    {% set groups = [
+      ("Overview", [("/admin", "Dashboard", "overview"), ("/admin/jobs", "Jobs", "jobs"), ("/admin/chat", "Messenger", "chat")]),
+      ("Connections", [("/admin/recipients", "Recipients", "people"), ("/admin/channels", "Channels", "channels"), ("/admin/clients", "Clients", "clients")]),
+      ("Preferences", [("/admin/personalities", "Personalities", "personality"), ("/admin/settings", "Settings", "settings")])
+    ] %}
+    {% from "_macros.html" import icon %}
+    {% for group, items in groups %}
+      <div class="nav-group"><span class="nav-label">{{ group }}</span>
+      {% for href, label, symbol in items %}
+        {% set active = path == href or (href != '/admin' and path.startswith(href)) %}
+        <a href="{{ href }}" class="nav-item {{ 'active' if active }}"{% if active %} aria-current="page"{% endif %}>
+          {{ icon(symbol) }}<span>{{ label }}</span>
+          {% if href == "/admin/channels" %}<span class="dot {{ 'ok' if channels_ok else 'bad' }}" role="img" aria-label="{{ 'Channels running' if channels_ok else 'Channels need attention' }}"></span>{% endif %}
+          {% if href == "/admin/recipients" and pending_pairings %}<span class="badge" aria-label="{{ pending_pairings }} pending pairing requests">{{ pending_pairings }}</span>{% endif %}
+        </a>
+      {% endfor %}
+      </div>
     {% endfor %}
-    <form method="post" action="/admin/logout" class="logout">
-      <input type="hidden" name="csrf" value="{{ admin.csrf_token }}">
-      <button class="link">Sign out</button>
-    </form>
-  </nav>
-  <main>
-    {% if notice %}<p class="success notice">{{ notice }}</p>{% endif %}
+    </nav>
+    <div class="sidebar-footer">
+      <span class="server-label">{{ icon("server") }} Home server <span class="muted">/ Admin</span></span>
+      <form method="post" action="/admin/logout">
+        <input type="hidden" name="csrf" value="{{ admin.csrf_token }}">
+        <button class="link">Sign out {{ icon("logout") }}</button>
+      </form>
+    </div>
+  </aside>
+  <main id="main" tabindex="-1">
+    {% if notice %}<p class="success notice" role="status">{{ notice }}</p>{% endif %}
     {% block content %}{% endblock %}
   </main>
 </div>
 {% else %}
-<main class="narrow">
-  <h1 class="brand-big">pester</h1>
+<main class="narrow" id="main" tabindex="-1">
+  <a class="brand public-brand" href="/admin"><span class="brand-mark" aria-hidden="true">p<span>·</span></span>pester</a>
   {% block public %}{% endblock %}
+  <p class="public-footer">A little less to keep in your head.</p>
 </main>
 {% endif %}
 </body>
