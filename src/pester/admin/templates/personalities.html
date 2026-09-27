@@ -1,22 +1,41 @@
 {% extends "base.html" %}
-{% from "_macros.html" import readonly_note %}
+{% from "_macros.html" import csrf with context %}
 {% block title %}Personalities{% endblock %}
 {% block content %}
 <h1>Personalities</h1>
 <p>A personality changes how prompts and feedback are phrased, never how answers are evaluated. Producers pick
 one per job with <code>personality_id</code>.</p>
-{{ readonly_note("pester personality set fern --type template feedback='🌿 {{ feedback_facts }}'") }}
 <section class="card flush">
 <table>
-  <thead><tr><th>Id</th><th>Type</th><th>Description</th></tr></thead>
-  {% for p in personalities %}
+  <thead><tr><th>Id</th><th>Type</th><th>Description</th><th></th></tr></thead>
+  {% for pid, p in personalities %}
   <tr>
-    <td><strong>{{ p.id }}</strong>{% if p.id == default_id %} <span class="chip">default</span>{% endif %}</td>
+    <td><a href="/admin/personalities/{{ pid }}"><strong>{{ pid }}</strong></a>{% if pid == default_id %} <span class="chip">default</span>{% endif %}</td>
     <td><code>{{ p.type }}</code></td>
     <td>{{ p.description }}</td>
+    <td><div class="actions">
+      <a href="/admin/personalities/{{ pid }}">Edit</a>
+      {% if pid != default_id %}
+      <form method="post" action="/admin/personalities/{{ pid }}/default">{{ csrf() }}<button class="small secondary">Make default</button></form>
+      <form method="post" action="/admin/personalities/{{ pid }}/delete" onsubmit="return confirm('Remove {{ pid }}? Jobs that ask for it will use the default.')">{{ csrf() }}<button class="small danger">Remove</button></form>
+      {% endif %}
+    </div></td>
   </tr>
   {% endfor %}
 </table>
+</section>
+<section class="card">
+  <h3>New personality</h3>
+  <form method="get" action="/admin/personalities/new" class="chooser">
+    <label>Type <select name="type">{% for t in types %}<option {{ 'selected' if t == 'template' }}>{{ t }}</option>{% endfor %}</select></label>
+    <button>Next</button>
+  </form>
+  <p class="help"><strong>template</strong>: Jinja templates around the neutral text. <strong>llm</strong>: an LLM rewrites
+  the feedback in a voice you describe. <strong>neutral</strong>: exactly what the evaluator wrote.</p>
+  <form method="get" action="/admin/personalities/new" class="chooser spaced">
+    <label>Or your own <input name="type" placeholder="my_package.voices:Pirate" required></label>
+    <button class="secondary">Next</button>
+  </form>
 </section>
 
 <section class="card">
@@ -27,7 +46,7 @@ one per job with <code>personality_id</code>.</p>
         hx-indicator="#preview-spinner">
     <label>Personality
       <select name="personality_id">
-        {% for p in personalities %}<option {{ 'selected' if p.id == default_id }}>{{ p.id }}</option>{% endfor %}
+        {% for pid in registered %}<option {{ 'selected' if pid == default_id }}>{{ pid }}</option>{% endfor %}
       </select>
     </label>
     <label>Evaluator

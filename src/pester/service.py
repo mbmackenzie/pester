@@ -258,7 +258,13 @@ class AdminService:
     # ---- Channels -------------------------------------------------------------------------------------
 
     async def add_channel(
-        self, name: str, channel_type: str, options: Mapping[str, Any] | None = None, *, description: str = ""
+        self,
+        name: str,
+        channel_type: str,
+        options: Mapping[str, Any] | None = None,
+        *,
+        description: str = "",
+        accept_pairing: bool = True,
     ) -> None:
         options = dict(options or {})
         adapter_secrets = self._check_channel(name, channel_type, options)
@@ -266,7 +272,12 @@ class AdminService:
         def edit(data: dict[str, Any]) -> None:
             if name in data["channels"]:
                 raise AdminError(f"channel {name!r} already exists")
-            data["channels"][name] = {"type": channel_type, "description": description, **options}
+            data["channels"][name] = {
+                "type": channel_type,
+                "description": description,
+                "accept_pairing": accept_pairing,
+                **options,
+            }
 
         await self.update(f"add channel {name}", edit, secrets=adapter_secrets)
 

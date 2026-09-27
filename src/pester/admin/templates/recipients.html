@@ -1,57 +1,104 @@
 {% extends "base.html" %}
-{% from "_macros.html" import readonly_note, csrf with context %}
+{% from "_macros.html" import csrf, checkboxes, error_box, timezone_input with context %}
 {% block title %}Recipients{% endblock %}
 {% block content %}
 <h1>Recipients</h1>
-{{ readonly_note("pester recipient update kate --timezone Europe/London") }}
+{{ error_box(error) }}
+
 {% if pending %}
-<section class="card flush">
-  <h3 class="pad">Pending pairing requests</h3>
-  <table>
-    <thead><tr><th>Id</th><th>Channel</th><th>Address</th><th>Said</th><th>When</th></tr></thead>
-    {% for p in pending %}
-    <tr>
-      <td>{{ p.pk }}</td><td>{{ p.channel }}</td><td>{{ p.address }}</td>
-      <td>{{ (p.first_text or "") | truncate_text(50) }}</td><td class="muted nowrap">{{ p.created_at | dt }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  <p class="note pad">Approve with <code>pester pairing approve ID --as NAME --timezone Europe/London</code>, or
-  reject with <code>pester pairing reject ID</code>.</p>
+<section class="card">
+  <h3>Pairing requests</h3>
+  <p>These people messaged Pester from an address it doesn't know. Approve someone as a new recipient, or as an
+  existing one to link another address.</p>
+  {% for p, suggestion in pending %}
+  <div class="card" style="margin-bottom: 0.75rem">
+    <p><strong>{{ p.address }}</strong> on <code>{{ p.channel }}</code> · {{ p.created_at | dt }}
+      {% if p.first_text %}· said “{{ p.first_text | truncate_text(80) }}”{% endif %}</p>
+    <form method="post" action="/admin/pairings/{{ p.pk }}/approve" class="row-form">
+      {{ csrf() }}
+      <label>Recipient id <input name="recipient_id" value="{{ suggestion }}" required list="recipient-ids" autocomplete="off"></label>
+      <label>Timezone {{ timezone_input("timezone", "", timezones) }}</label>
+      <label>Quiet hours <input name="quiet" placeholder="22:00-09:00 (optional)"></label>
+      <div style="flex-basis: 100%"><span class="small"><strong>Clients that may message them</strong></span>{{ checkboxes("clients", clients, []) }}</div>
+      <button>Approve</button>
+    </form>
+    <form method="post" action="/admin/pairings/{{ p.pk }}/reject" style="margin-top: 0.5rem" onsubmit="return confirm('Ignore {{ p.address }} from now on?')">
+      {{ csrf() }}<button class="small secondary">Reject</button>
+    </form>
+  </div>
+  {% endfor %}
+  <datalist id="recipient-ids">{% for id, r, s in recipients %}<option>{{ id }}</option>{% endfor %}</datalist>
 </section>
 {% endif %}
+
 <section class="card flush">
 {% if recipients %}
 <table>
   <thead><tr><th>Recipient</th><th>Timezone</th><th>Quiet hours</th><th>Channels</th><th>Now</th><th></th></tr></thead>
   {% for id, r, s in recipients %}
   <tr>
-    <td><strong>{{ id }}</strong></td>
+    <td><a href="/admin/recipients/{{ id }}"><strong>{{ id }}</strong></a></td>
     <td>{{ r.timezone }}</td>
     <td>{% if r.quiet_hours %}{{ r.quiet_hours.start.strftime("%H:%M") }}–{{ r.quiet_hours.end.strftime("%H:%M") }}{% else %}<span class="muted">global</span>{% endif %}</td>
     <td>
       {% for name, cfg in r.channels.items() %}
-        <span class="chip">{{ "mock" if name == "fake" else name }}{% if cfg.address %}: {{ cfg.address }}{% endif %}</span>
-      {% else %}<span class="muted">none</span>{% endfor %}
+        <span class="chip">{{ name }}{% if cfg.address %}: {{ cfg.address }}{% endif %}</span>
+      {% else %}<span class="error-text small">none: Pester can't reach them</span>{% endfor %}
     </td>
     <td>
       {% if s.paused %}<span class="status status-paused">PAUSED</span>{% else %}<span class="status status-active">ACTIVE</span>{% endif %}
       <span class="muted small">{{ s.queued }} queued · {{ s.awaiting | length }} awaiting</span>
     </td>
-    <td class="right">
+    <td><div class="actions">
+      <a href="/admin/recipients/{{ id }}">Edit</a>
       <form method="post" action="/admin/recipients/{{ id }}/{{ 'resume' if s.paused else 'pause' }}">
         {{ csrf() }}<button class="small secondary">{{ "Resume" if s.paused else "Pause" }}</button>
       </form>
-    </td>
+    </div></td>
   </tr>
   {% endfor %}
 </table>
 {% else %}
-<p class="muted pad">No recipients yet. Pair someone: they send <code>/start</code> to Pester on a channel (try a
-new address on the <a href="/admin/chat">Messenger</a>), then you approve the request. Or add one directly with
-<code>pester recipient add NAME</code>.</p>
+<p class="muted pad">No recipients yet. The easiest way to add someone: they send <code>/start</code> to Pester on a
+channel (try a new address on the <a href="/admin/chat">Messenger</a>) and you approve the request here.</p>
 {% endif %}
 </section>
-<p class="note">Pausing holds new prompts for that person, just like their own <code>/pause</code> command. Jobs
+<p class="note">Pausing holds new prompts for that person, just like their own <code>/pause</code> command. Questions
 already delivered stay open.</p>
+
+<div class="columns">
+<section class="card">
+  <h3>Invite someone</h3>
+  <p>A one-time code that pairs whoever sends <code>/start &lt;code&gt;</code> as this recipient, without approval.</p>
+  <form method="post" action="/admin/invites" class="stack">
+    {{ csrf() }}
+    <label>Recipient id <input name="recipient_id" required list="recipient-ids-all" autocomplete="off" placeholder="new or existing"></label>
+    <label>Timezone <span class="muted">(for someone new)</span> {{ timezone_input("timezone", "", timezones) }}</label>
+    <label>Valid for (days) <input name="days" type="number" min="1" max="90" value="7"></label>
+    <div><button>Create invite</button></div>
+  </form>
+  <datalist id="recipient-ids-all">{% for id, r, s in recipients %}<option>{{ id }}</option>{% endfor %}</datalist>
+  {% if invites %}
+  <h3 class="spaced">Invites</h3>
+  <table>
+    {% for i in invites[:10] %}
+    <tr><td>{{ i.recipient_id }}</td>
+      <td class="muted small">{% if i.used_at %}used on {{ i.used_channel }} by {{ i.used_address }}{% else %}unused · expires {{ i.expires_at | dt }}{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</section>
+<section class="card">
+  <h3>Add a recipient directly</h3>
+  <p>If you already know how to reach them, add them here, then link a channel on their page.</p>
+  <form method="post" action="/admin/recipients" class="stack">
+    {{ csrf() }}
+    <label>Recipient id <input name="id" required value="{{ form.add.id if form.add else '' }}" autocomplete="off"></label>
+    <label>Timezone {{ timezone_input("timezone", form.add.timezone if form.add else "", timezones) }}</label>
+    <label>Quiet hours <input name="quiet" placeholder="22:00-09:00 (optional; blank uses the global setting)" value="{{ form.add.quiet if form.add else '' }}"></label>
+    <div><span class="small"><strong>Clients that may message them</strong></span>{{ checkboxes("clients", clients, []) }}</div>
+    <div><button>Add recipient</button></div>
+  </form>
+</section>
+</div>
 {% endblock %}

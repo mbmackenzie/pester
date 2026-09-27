@@ -48,3 +48,25 @@ document.addEventListener("DOMContentLoaded", () => {
     if (event.detail.target.id === "chat-log" || event.detail.elt.id === "chat-log") scrollChat();
   });
 });
+
+// Timezone inputs default to the browser's zone when empty.
+document.addEventListener("DOMContentLoaded", () => {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  for (const input of document.querySelectorAll("input[data-default-tz]")) {
+    if (!input.value && zone) input.value = zone;
+  }
+});
+
+// Copy buttons: data-copy="<element id>".
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-copy]");
+  if (!button) return;
+  const source = document.getElementById(button.dataset.copy);
+  try {
+    await navigator.clipboard.writeText(source.textContent.trim());
+    button.textContent = "Copied";
+  } catch {
+    window.getSelection().selectAllChildren(source);  // no clipboard access over plain HTTP: select it instead
+    button.textContent = "Selected; press Ctrl+C";
+  }
+});

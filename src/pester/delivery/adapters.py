@@ -68,10 +68,14 @@ def secret_fields(model: type[BaseModel]) -> list[SecretField]:
     return found
 
 
-def resolve_adapter(type_name: str) -> ChannelAdapter:
-    from pester.delivery.mock import MockAdapter
+def builtin_adapters() -> dict[str, ChannelAdapter]:
+    from pester.delivery.mock import MockAdapter  # mock imports this module
 
-    builtins: dict[str, ChannelAdapter] = {"mock": MockAdapter()}
+    return {"mock": MockAdapter()}
+
+
+def resolve_adapter(type_name: str) -> ChannelAdapter:
+    builtins = builtin_adapters()
     if type_name in builtins:
         return builtins[type_name]
     module_name, sep, attr = type_name.partition(":")

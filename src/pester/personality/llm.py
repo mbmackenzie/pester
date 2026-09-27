@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Self
 
 from openai import AsyncOpenAI
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pester.llm import chat, first_text, system, user
 from pester.personality.base import (
@@ -35,9 +35,15 @@ Rules:
 class LLMPersonalityOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    prompt: str | None = None
-    prompt_file: Path | None = None
-    model: str | None = None
+    prompt: str | None = Field(
+        default=None,
+        description="Who the personality is and how it talks. Set this or prompt_file.",
+        json_schema_extra={"multiline": True},
+    )
+    prompt_file: Path | None = Field(
+        default=None, description="A file with the prompt, relative to the config file."
+    )
+    model: str | None = Field(default=None, description="Defaults to the LLM model in Settings.")
     temperature: float | None = None
 
     @model_validator(mode="after")

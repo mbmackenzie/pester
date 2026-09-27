@@ -349,6 +349,6 @@ async def test_preview_reports_bad_input(client: httpx.AsyncClient, signed_in: s
 async def test_pending_pairings_are_listed(client: httpx.AsyncClient, app: FastAPI, signed_in: str) -> None:
     await client.post("/admin/chat/zoe", data={"text": "/start"}, headers={"X-CSRF-Token": signed_in})
     page = (await client.get("/admin/recipients")).text
-    assert "Pending pairing requests" in page
+    assert "Pairing requests" in page
     assert "zoe" in page
-    assert "pester pairing approve" in page
+    assert "/admin/pairings/" in page  # the approve form

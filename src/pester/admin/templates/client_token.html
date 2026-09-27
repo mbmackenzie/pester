@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Token for {{ created.client_id }}{% endblock %}
+{% block content %}
+<p><a href="/admin/clients">← Clients</a></p>
+<h1>{{ "Created " ~ created.client_id if new else "New token for " ~ created.client_id }}</h1>
+<section class="card">
+  <h3>Token</h3>
+  <p>Copy it now: <strong>this is the only time it's shown.</strong> Pester keeps only a hash.</p>
+  <div class="once" id="token">{{ created.token }}</div>
+  <p><button type="button" class="secondary small" data-copy="token">Copy</button></p>
+</section>
+<section class="card">
+  <h3>Try it</h3>
+  <pre id="snippet">curl -H "Authorization: Bearer {{ created.token }}" -H 'content-type: application/json' \
+  -d '{"recipient_id":"{{ recipient }}","prompt":"Did you water the plants?","response_options":["Yes","No"],"evaluation":{"evaluator":"rule","prompt":"match"}}' \
+  {{ base_url }}/api/v1/jobs</pre>
+  <p><button type="button" class="secondary small" data-copy="snippet">Copy</button></p>
+  <p class="note">Then read what happened with <code>GET {{ base_url }}/api/v1/events</code>. The API reference is in the
+  <a href="https://github.com/mbmackenzie/pester/blob/main/docs/spec.md#7-api">spec</a>.</p>
+</section>
+{% endblock %}

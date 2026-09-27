@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from pester.personality.base import BasePersonality, PersonalityServices, parse_options
 
 
-class _NoOptions(BaseModel):
+class NeutralOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
@@ -15,5 +15,5 @@ class NeutralPersonality(BasePersonality):
 
 
 def neutral(options: Mapping[str, Any], services: PersonalityServices) -> NeutralPersonality:
-    parse_options(_NoOptions, options)
+    parse_options(NeutralOptions, options)
     return NeutralPersonality()

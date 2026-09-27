@@ -1,40 +1,78 @@
 {% extends "base.html" %}
-{% from "_macros.html" import readonly_note, csrf with context %}
+{% from "_macros.html" import csrf, error_box, option_field with context %}
 {% block title %}Settings{% endblock %}
 {% block content %}
 <h1>Settings</h1>
-{{ readonly_note("pester settings set scheduler.max_messages_per_day=6") }}
-<div class="columns">
+
 <section class="card">
   <h3>Pacing</h3>
-  <dl>
-    <dt>Quiet hours</dt><dd>{% if scheduler.quiet_hours %}{{ scheduler.quiet_hours.start.strftime("%H:%M") }}–{{ scheduler.quiet_hours.end.strftime("%H:%M") }} in each person's timezone{% else %}none{% endif %}</dd>
-    <dt>Spacing</dt><dd>at least {{ scheduler.min_interval_minutes }} min between prompts, ± up to {{ scheduler.jitter_minutes }} min jitter</dd>
-    <dt>Daily cap</dt><dd>{{ scheduler.max_messages_per_day }} prompts per person per day</dd>
-    <dt>Open at once</dt><dd>{{ scheduler.max_outstanding }} unanswered prompt{{ "s" if scheduler.max_outstanding != 1 }} per person</dd>
-    <dt>Answer window</dt><dd>{{ (scheduler.default_answer_within_seconds / 3600) | round(1) }} h unless the job says otherwise</dd>
-    <dt>Debounce</dt><dd>{{ scheduler.debounce_seconds }} s to join multi-message answers</dd>
-    <dt>Longest snooze</dt><dd>{{ scheduler.max_snooze_hours }} h</dd>
-  </dl>
+  <p>How Pester spaces out questions for everyone. A recipient's own quiet hours (on their page) replace the global ones.</p>
+  {{ error_box(errors.scheduler) }}
+  <form method="post" action="/admin/settings/section/scheduler" class="grid-form">
+    {{ csrf() }}
+    <label class="wide">Quiet hours <input name="quiet" value="{{ quiet }}" placeholder="blank: none">
+      <span class="help">In each person's timezone, e.g. 21:00-08:30. Nothing is sent then.</span></label>
+    {% for f in sections.scheduler %}<div>{{ option_field(f) }}</div>{% endfor %}
+    <div class="wide"><button>Save pacing</button></div>
+  </form>
 </section>
+
 <section class="card">
   <h3>LLM</h3>
   <dl>
-    <dt>API key</dt><dd>{% if llm_key_source %}<span class="dot ok"></span> set ({{ "by the OPENAI_API_KEY environment variable" if llm_key_source == "environment" else "in the database" if llm_key_source == "database" else llm_key_source }}){% else %}<span class="dot idle"></span> not set. Without a key, <code>llm</code> evaluations are unavailable (echoed back in dev mode). Set one with <code>pester llm key</code>.{% endif %}</dd>
-    <dt>Model</dt><dd><code>{{ llm.model }}</code></dd>
-    <dt>Endpoint</dt><dd>{{ llm.base_url or "OpenAI" }}</dd>
-    <dt>Output</dt><dd>{{ llm.response_format }}, up to {{ llm.max_attempts }} attempts</dd>
+    <dt>API key</dt>
+    <dd>{% if llm_key_source == "environment" %}<span class="dot ok"></span> set by the <code>OPENAI_API_KEY</code> environment variable
+      {% elif llm_key_source == "database" %}<span class="dot ok"></span> saved
+      {% elif llm_key_source %}<span class="dot ok"></span> {{ llm_key_source }}
+      {% else %}<span class="dot idle"></span> not set: <code>llm</code> evaluations are unavailable{% if not llm_live %} (echoed back in dev mode){% endif %}{% endif %}</dd>
   </dl>
-  <h3>Delivery retries</h3>
-  <dl>
-    <dt>Attempts</dt><dd>{{ delivery.max_attempts }}, backing off from {{ delivery.backoff_seconds }} s to {{ delivery.max_backoff_seconds }} s</dd>
-  </dl>
+  {{ error_box(errors.llm_key) }}
+  {% if llm_key_source != "environment" %}
+  <form method="post" action="/admin/settings/llm-key" class="row-form">
+    {{ csrf() }}
+    <label>{{ "Replace the key" if llm_key_source else "API key" }} <input type="password" name="key" autocomplete="new-password" placeholder="sk-…"></label>
+    {% if llm_key_source == "database" %}<label class="check" style="flex: none"><input type="checkbox" name="clear" value="true"> Clear</label>{% endif %}
+    <button class="secondary">Save key</button>
+  </form>
+  {% endif %}
+  <div class="spaced">
+    <button class="secondary" hx-post="/admin/settings/test-llm" hx-target="#llm-test" hx-indicator="#llm-spinner">Test connection</button>
+    <span id="llm-spinner" class="htmx-indicator muted">Asking the model…</span>
+    <div id="llm-test"></div>
+  </div>
+  {{ error_box(errors.llm) }}
+  <form method="post" action="/admin/settings/section/llm" class="grid-form spaced">
+    {{ csrf() }}
+    {% for f in sections.llm %}<div>{{ option_field(f) }}</div>{% endfor %}
+    <div class="wide"><button>Save LLM settings</button></div>
+  </form>
 </section>
-</div>
+
+<section class="card">
+  <h3>Delivery retries</h3>
+  <p>For sends that definitely failed. A send whose outcome is unknown is never retried, so nobody gets a duplicate.</p>
+  {{ error_box(errors.delivery) }}
+  <form method="post" action="/admin/settings/section/delivery" class="grid-form">
+    {{ csrf() }}
+    {% for f in sections.delivery %}<div>{{ option_field(f) }}</div>{% endfor %}
+    <div class="wide"><button>Save</button></div>
+  </form>
+</section>
+
+<section class="card flush">
+  <h3 class="pad">Config history</h3>
+  <table>
+    {% for c in history %}
+    <tr><td class="muted">v{{ c.version }}</td><td class="muted nowrap">{{ c.created_at | dt }}</td><td>{{ c.comment }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="note pad"><a href="/admin/settings/export.yaml">Download the config as YAML</a> (no secrets). Restore or
+  replace it with <code>pester import FILE</code>.</p>
+</section>
+
 <section class="card">
   <h3>Admin password</h3>
-  {% if request.query_params.get("password") == "changed" %}<p class="success">Password changed. Other sessions were signed out.</p>{% endif %}
-  {% if password_error %}<p class="error">{{ password_error }}</p>{% endif %}
+  {{ error_box(password_error) }}
   <form method="post" action="/admin/settings/password" class="stack narrow-form">
     {{ csrf() }}
     <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>

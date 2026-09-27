@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import csrf with context %}
 {% block title %}Channels{% endblock %}
 {% block content %}
 <h1>Channels</h1>
@@ -6,22 +7,45 @@
 <section class="card flush">
 {% if channels %}
 <table>
-  <thead><tr><th>Channel</th><th>Type</th><th>Status</th><th>Recipients</th></tr></thead>
-  {% for st, members in channels %}
+  <thead><tr><th>Channel</th><th>Type</th><th>Status</th><th>Recipients</th><th></th></tr></thead>
+  {% for name, cfg, st, members in channels %}
   <tr>
-    <td><strong>{{ st.name }}</strong></td>
-    <td><code>{{ st.type }}</code></td>
-    <td><span class="dot {{ 'ok' if st.running else 'bad' }}"></span> {{ "running" if st.running else "not running" }}
-      {% if st.error %}<div class="error-text small">{{ st.error }}</div>{% endif %}</td>
-    <td>{% for r, cfg in members %}<span class="chip">{{ r }}{% if cfg.address %}: {{ cfg.address }}{% endif %}</span>{% else %}<span class="muted">none</span>{% endfor %}</td>
+    <td>{% if cfg %}<a href="/admin/channels/{{ name }}"><strong>{{ name }}</strong></a>{% else %}<strong>{{ name }}</strong>{% endif %}
+      {% if cfg and cfg.description %}<div class="muted small">{{ cfg.description }}</div>{% endif %}</td>
+    <td><code>{{ cfg.type if cfg else st.type }}</code>{% if not cfg %}<div class="muted small">{{ "supplied by code" if st.injected else "dev mode" }}</div>{% endif %}</td>
+    <td>
+      {% if cfg and not cfg.enabled %}<span class="dot idle"></span> disabled
+      {% elif st and st.running %}<span class="dot ok"></span> running
+      {% else %}<span class="dot bad"></span> not running{% endif %}
+      {% if st and st.error %}<div class="error-text small">{{ st.error }}</div>{% endif %}
+      {% if cfg and cfg.enabled and not cfg.accept_pairing %}<div class="muted small">pairing off</div>{% endif %}
+    </td>
+    <td>{% for r in members %}<span class="chip">{{ r }}</span>{% else %}<span class="muted">none</span>{% endfor %}</td>
+    <td><div class="actions">
+      {% if cfg %}<a href="/admin/channels/{{ name }}">Edit</a>{% endif %}
+      {% if st %}<form method="post" action="/admin/channels/{{ name }}/restart">{{ csrf() }}<button class="small secondary">Restart</button></form>{% endif %}
+      {% if cfg %}<form method="post" action="/admin/channels/{{ name }}/remove" onsubmit="return confirm('Remove channel {{ name }} and its secrets? Recipients linked to it can no longer be reached there.')">{{ csrf() }}<button class="small danger">Remove</button></form>{% endif %}
+    </div></td>
   </tr>
   {% endfor %}
 </table>
 {% else %}
-<p class="pad">No channels are running, so nothing can be delivered. Add one with
-<code>pester channel add mock --type mock</code>{% if not dev_mode %}, or set <code>PESTER_DEV_MODE=true</code>{% endif %}.</p>
+<p class="pad">No channels yet, so nothing can be delivered. Add one below: <strong>mock</strong> is a messenger built
+into Pester, for trying it out from the <a href="/admin/chat">Messenger</a> page.</p>
 {% endif %}
 </section>
-<p class="note">A <code>mock</code> channel is a messenger built into Pester for trying it out; use it from the
-<a href="/admin/chat">Messenger</a> page.</p>
+
+<section class="card">
+  <h3>Add a channel</h3>
+  <form method="get" action="/admin/channels/new" class="chooser">
+    <label>Type
+      <select name="type">{% for name, description in adapters %}<option value="{{ name }}">{{ name }}: {{ description }}</option>{% endfor %}</select>
+    </label>
+    <button>Next</button>
+  </form>
+  <form method="get" action="/admin/channels/new" class="chooser spaced">
+    <label>Or your own adapter <input name="type" placeholder="my_package.chat:Adapter" required></label>
+    <button class="secondary">Next</button>
+  </form>
+</section>
 {% endblock %}

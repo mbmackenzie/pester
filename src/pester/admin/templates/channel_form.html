@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, error_box, option_field with context %}
+{% block title %}{{ channel_name or "New channel" }}{% endblock %}
+{% block content %}
+<p><a href="/admin/channels">← Channels</a></p>
+<h1>{% if channel_name %}{{ channel_name }}{% else %}New {{ channel_type }} channel{% endif %}</h1>
+<p class="muted">{{ adapter.description }}</p>
+<section class="card">
+  {{ error_box(error) }}
+  <form method="post" action="{{ '/admin/channels/' ~ channel_name if channel_name else '/admin/channels' }}" class="stack narrow-form" style="max-width: 560px">
+    {{ csrf() }}
+    <input type="hidden" name="type" value="{{ channel_type }}">
+    {% if not channel_name %}
+    <label>Name <input name="name" value="{{ values.name }}" required pattern="[a-z0-9][a-z0-9_-]{0,31}" autocomplete="off">
+      <span class="help">Lowercase letters, digits, - and _. Recipients' links refer to this name.</span></label>
+    {% endif %}
+    <label>Description <input name="description" value="{{ values.description or '' }}" placeholder="optional"></label>
+    {% for f in fields %}{{ option_field(f) }}{% endfor %}
+    <label class="check"><input type="checkbox" name="accept_pairing" value="true" {{ 'checked' if values.accept_pairing is not defined or values.accept_pairing }}>
+      Accept pairing requests</label>
+    <span class="help">A message from an unknown address becomes a request for you to approve on the Recipients page.</span>
+    {% if channel_name %}
+    <label class="check"><input type="checkbox" name="enabled" value="true" {{ 'checked' if values.enabled }}> Enabled</label>
+    {% endif %}
+    <div><button>{{ "Save" if channel_name else "Add channel" }}</button></div>
+  </form>
+  <p class="note">Saving restarts this channel if anything it uses changed; other channels keep running.</p>
+</section>
+{% endblock %}

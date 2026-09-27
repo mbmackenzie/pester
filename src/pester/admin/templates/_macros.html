@@ -2,12 +2,62 @@
   <span class="status status-{{ value | lower }}">{{ value }}</span>
 {%- endmacro %}
 
-{% macro readonly_note(command) -%}
-  <p class="note">Change this with the <code>pester</code> CLI, e.g. <code>{{ command }}</code> (in Docker:
-  <code>docker compose exec pester pester …</code>). Changes apply within seconds, no restart. Editing on this
-  page is coming next.</p>
-{%- endmacro %}
-
 {% macro csrf() -%}
   <input type="hidden" name="csrf" value="{{ admin.csrf_token }}">
+{%- endmacro %}
+
+{% macro error_box(message) -%}
+  {% if message %}<p class="error">{{ message }}</p>{% endif %}
+{%- endmacro %}
+
+{# A field generated from an options model (see admin/forms.py). #}
+{% macro option_field(f) -%}
+  {% set name = "opt_" ~ f.name %}
+  {% if f.kind == "checkbox" %}
+    <label class="check"><input type="checkbox" name="{{ name }}" value="true"
+      {{ 'checked' if (f.value if f.value is not none else f.default) }}> {{ f.label }}</label>
+  {% elif f.kind == "secret" %}
+    <label>{{ f.label }} <span class="muted">(secret)</span>
+      {% if f.secret_status == "environment" %}
+        <input type="password" disabled placeholder="set by the {{ f.env }} environment variable">
+      {% else %}
+        <input type="password" name="{{ name }}" autocomplete="new-password"
+          placeholder="{{ 'saved; type to replace' if f.secret_status == 'database' else ('required' if f.required else '') }}">
+      {% endif %}
+    </label>
+    {% if f.secret_status == "database" %}
+      <label class="check small"><input type="checkbox" name="{{ name }}__clear" value="true"> Clear the saved value</label>
+    {% endif %}
+    {% if f.env and f.secret_status != "environment" %}<span class="help">Or set the {{ f.env }} environment variable, which takes precedence.</span>{% endif %}
+  {% else %}
+    <label>{{ f.label }}{% if f.required %} <span class="muted">*</span>{% endif %}
+      {% if f.kind == "textarea" %}
+        <textarea name="{{ name }}" rows="5">{{ f.display }}</textarea>
+      {% elif f.kind == "select" %}
+        <select name="{{ name }}">
+          {% if f.nullable %}<option value=""></option>{% endif %}
+          {% for c in f.choices %}<option {{ 'selected' if c == f.display }}>{{ c }}</option>{% endfor %}
+        </select>
+      {% else %}
+        <input name="{{ name }}" value="{{ f.display }}"
+          {% if f.kind in ("integer", "number") %}type="number" step="{{ '1' if f.kind == 'integer' else 'any' }}"{% endif %}
+          {{ 'required' if f.required }}
+          {% if f.kind == "yaml" %}placeholder="YAML"{% endif %}>
+      {% endif %}
+    </label>
+  {% endif %}
+  {% if f.help %}<span class="help">{{ f.help }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro checkboxes(name, choices, selected) -%}
+  <div class="checks">
+    {% for c in choices %}
+      <label class="check"><input type="checkbox" name="{{ name }}" value="{{ c }}" {{ 'checked' if c in selected }}> {{ c }}</label>
+    {% else %}<span class="muted small">none yet</span>{% endfor %}
+  </div>
+{%- endmacro %}
+
+{% macro timezone_input(name, value, timezones) -%}
+  <input name="{{ name }}" value="{{ value }}" list="timezones" placeholder="America/New_York" autocomplete="off" data-default-tz>
+  <datalist id="timezones">{% for tz in timezones %}<option>{{ tz }}</option>{% endfor %}</datalist>
 {%- endmacro %}
