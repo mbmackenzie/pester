@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf, error_box, option_field with context %}
 {% block title %}Settings{% endblock %}
+{% from "_macros.html" import page_header %}
 {% block content %}
-<h1>Settings</h1>
+{{ page_header('Settings', 'Make Pester fit your household and your server.') }}
+<nav class="section-nav" aria-label="Settings sections">
+  <a href="#pacing">Pacing</a><a href="#model">Evaluation model</a><a href="#delivery">Delivery</a><a href="#history">Config history</a><a href="#security">Admin access</a>
+</nav>
 
-<section class="card">
-  <h3>Pacing</h3>
+<section class="card" id="pacing">
+  <h2>Message pacing</h2>
   <p>How Pester spaces out questions for everyone. A recipient's own quiet hours (on their page) replace the global ones.</p>
   {{ error_box(errors.scheduler) }}
   <form method="post" action="/admin/settings/section/scheduler" class="grid-form">
@@ -17,8 +21,8 @@
   </form>
 </section>
 
-<section class="card">
-  <h3>LLM</h3>
+<section class="card" id="model">
+  <h2>Evaluation model</h2>
   <dl>
     <dt>API key</dt>
     <dd>{% if llm_key_source == "environment" %}<span class="dot ok"></span> set by the <code>OPENAI_API_KEY</code> environment variable
@@ -48,19 +52,19 @@
   </form>
 </section>
 
-<section class="card">
-  <h3>Delivery retries</h3>
+<section class="card" id="delivery">
+  <h2>Delivery retries</h2>
   <p>For sends that definitely failed. A send whose outcome is unknown is never retried, so nobody gets a duplicate.</p>
   {{ error_box(errors.delivery) }}
   <form method="post" action="/admin/settings/section/delivery" class="grid-form">
     {{ csrf() }}
     {% for f in sections.delivery %}<div>{{ option_field(f) }}</div>{% endfor %}
-    <div class="wide"><button>Save</button></div>
+    <div class="wide"><button>Save delivery settings</button></div>
   </form>
 </section>
 
-<section class="card flush">
-  <h3 class="pad">Config history</h3>
+<section class="card flush" id="history">
+  <h2 class="pad">Config history</h2>
   <table>
     {% for c in history %}
     <tr><td class="muted">v{{ c.version }}</td><td class="muted nowrap">{{ c.created_at | dt }}</td><td>{{ c.comment }}</td></tr>
@@ -70,8 +74,8 @@
   replace it with <code>pester import FILE</code>.</p>
 </section>
 
-<section class="card">
-  <h3>Admin password</h3>
+<section class="card" id="security">
+  <h2>Admin password</h2>
   {{ error_box(password_error) }}
   <form method="post" action="/admin/settings/password" class="stack narrow-form">
     {{ csrf() }}

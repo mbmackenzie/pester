@@ -3,6 +3,7 @@ import pytest
 from fastapi import FastAPI
 
 from pester.admin.auth import hash_password, verify_password
+from pester.core.states import JobStatus
 from pester.runtime import Runtime
 from tests.admin.conftest import PASSWORD, admin_auth, set_up
 from tests.conftest import TOKEN_A, auth, job_payload
@@ -258,7 +259,33 @@ async def test_jobs_list_filters_and_pages(client: httpx.AsyncClient, signed_in:
         await submit(client, prompt=f"question {i}")
     page = (await client.get("/admin/jobs", params={"status": "QUEUED"})).text
     assert all(f"question {i}" in page for i in range(3))
-    assert "question" not in (await client.get("/admin/jobs", params={"status": "COMPLETED"})).text
+    assert "question 0" not in (await client.get("/admin/jobs", params={"status": "COMPLETED"})).text
+
+
+async def test_job_filters_accept_the_empty_status_from_the_form(
+    client: httpx.AsyncClient, signed_in: str
+) -> None:
+    await submit(client, prompt="A question for Kate")
+    response = await client.get("/admin/jobs?status=&recipient=kate&client=")
+    assert response.status_code == 200
+    assert "A question for Kate" in response.text
+    assert (await client.get("/admin/jobs?status=INVALID")).status_code == 422
+
+
+async def test_dashboard_in_progress_link_includes_all_outstanding_states(
+    client: httpx.AsyncClient, app: FastAPI, signed_in: str
+) -> None:
+    states = [JobStatus.SENDING, JobStatus.AWAITING, JobStatus.ANSWERED, JobStatus.EVALUATED]
+    for index, state in enumerate(states):
+        job_id = await submit(client, prompt=f"In progress {state}")
+        for transition in states[: index + 1]:
+            await app.state.repo.transition("producer-a", job_id, transition)
+    await submit(client, prompt="Still in the queue")
+    page = await client.get("/admin/jobs?outstanding=true&status=&recipient=&client=")
+    assert page.status_code == 200
+    assert all(f"In progress {state}" in page.text for state in states)
+    assert "Still in the queue" not in page.text
+    assert "/admin/jobs?outstanding=true" in (await client.get("/admin")).text
 
 
 async def test_admin_can_cancel_a_job(client: httpx.AsyncClient, signed_in: str) -> None:

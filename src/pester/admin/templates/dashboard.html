@@ -1,18 +1,28 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header, icon %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<h1>Dashboard</h1>
+{{ page_header('Dashboard', 'A quiet overview of the people, apps, and messages connected to your server.') }}
 {% if not steps | selectattr(1) | list | length == steps | length %}
 <section class="card checklist">
-  <h3>Getting started</h3>
+  <div class="section-heading"><h2>Getting started</h2><span class="note">{{ steps | selectattr(1) | list | length }} of {{ steps | length }} complete</span></div>
+  <p class="muted small">Connect a channel, invite someone, then give your app a key. Pester takes it from there.</p>
   <ol>
     {% for label, done, href in steps %}
-      <li class="{{ 'done' if done }}"><a href="{{ href }}">{{ label }}</a></li>
+      <li class="{{ 'done' if done }}"><a href="{{ href }}">{{ label }}</a>{% if done %}<span class="sr-only"> (complete)</span>{% endif %}</li>
     {% endfor %}
   </ol>
 </section>
 {% endif %}
-<div hx-get="/admin/partials/overview" hx-trigger="every 10s" hx-swap="innerHTML">
+<div class="quick-links" aria-label="Connection shortcuts">
+  <a class="quick-link" href="/admin/channels#add-channel">{{ icon("channels") }}<span><strong>Connect a channel</strong><small>Choose where conversations happen.</small></span></a>
+  <a class="quick-link" href="/admin/recipients#invite-recipient">{{ icon("people") }}<span><strong>Invite someone</strong><small>Pair a person with a one-time code.</small></span></a>
+  <a class="quick-link" href="/admin/clients#new-client">{{ icon("clients") }}<span><strong>Connect an app</strong><small>Create an API key for your producer.</small></span></a>
+</div>
+{% if pending_pairings %}
+<p class="success"><strong>{{ pending_pairings }} pairing request{{ 's' if pending_pairings != 1 }} waiting.</strong> <a href="/admin/recipients">Review requests →</a></p>
+{% endif %}
+<div id="overview" hx-get="/admin/partials/overview" hx-trigger="every 10s" hx-swap="innerHTML">
   {% include "partials/overview.html" %}
 </div>
 {% endblock %}

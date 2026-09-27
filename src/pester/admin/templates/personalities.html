@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf with context %}
 {% block title %}Personalities{% endblock %}
+{% from "_macros.html" import page_header %}
 {% block content %}
-<h1>Personalities</h1>
-<p>A personality changes how prompts and feedback are phrased, never how answers are evaluated. Producers pick
-one per job with <code>personality_id</code>.</p>
+{{ page_header('Personalities', 'Give prompts and feedback a voice. Evaluation stays the same.', '#new-personality', 'Add a personality') }}
+
 <section class="card flush">
 <table>
-  <thead><tr><th>Id</th><th>Type</th><th>Description</th><th></th></tr></thead>
+  <thead><tr><th>Id</th><th>Type</th><th>Description</th><th><span class="sr-only">Actions</span></th></tr></thead>
   {% for pid, p in personalities %}
   <tr>
     <td><a href="/admin/personalities/{{ pid }}"><strong>{{ pid }}</strong></a>{% if pid == default_id %} <span class="chip">default</span>{% endif %}</td>
@@ -26,18 +26,20 @@ one per job with <code>personality_id</code>.</p>
   {% endfor %}
 </table>
 </section>
-<section class="card">
-  <h3>New personality</h3>
+<section class="card" id="new-personality">
+  <h2>New personality</h2>
   <form method="get" action="/admin/personalities/new" class="chooser">
     <label>Type <select name="type">{% for t in types %}<option {{ 'selected' if t == 'template' }}>{{ t }}</option>{% endfor %}</select></label>
     <button>Next</button>
   </form>
   <p class="help"><strong>template</strong>: Jinja templates around the neutral text. <strong>llm</strong>: an LLM rewrites
   the feedback in a voice you describe. <strong>neutral</strong>: exactly what the evaluator wrote.</p>
+  <details class="advanced"><summary>Use a custom personality type</summary>
   <form method="get" action="/admin/personalities/new" class="chooser spaced">
     <label>Or your own <input name="type" placeholder="my_package.voices:Pirate" required></label>
     <button class="secondary">Next</button>
   </form>
+  </details>
 </section>
 
 <section class="card">

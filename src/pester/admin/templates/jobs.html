@@ -1,22 +1,25 @@
 {% extends "base.html" %}
 {% from "_macros.html" import status %}
 {% block title %}Jobs{% endblock %}
+{% from "_macros.html" import page_header %}
 {% block content %}
-<h1>Jobs</h1>
+{{ page_header('Jobs', 'Follow each question from the queue to a reply.') }}
 <form method="get" class="filters">
-  <select name="status" onchange="this.form.submit()">
-    <option value="">any status</option>
+  <label>Status<select name="status" onchange="this.form.submit()">
+    <option value="">All statuses</option>
     {% for s in statuses %}<option {{ 'selected' if filters.status == s }}>{{ s }}</option>{% endfor %}
-  </select>
-  <select name="recipient" onchange="this.form.submit()">
-    <option value="">any recipient</option>
+  </select></label>
+  <label>Recipient<select name="recipient" onchange="this.form.submit()">
+    <option value="">All recipients</option>
     {% for r in recipients %}<option {{ 'selected' if filters.recipient == r }}>{{ r }}</option>{% endfor %}
-  </select>
-  <select name="client" onchange="this.form.submit()">
-    <option value="">any client</option>
+  </select></label>
+  <label>Client<select name="client" onchange="this.form.submit()">
+    <option value="">All clients</option>
     {% for c in clients %}<option {{ 'selected' if filters.client == c }}>{{ c }}</option>{% endfor %}
-  </select>
-  <noscript><button>Filter</button></noscript>
+  </select></label>
+  <label class="check"><input type="checkbox" name="outstanding" value="true" {{ 'checked' if filters.outstanding }} onchange="this.form.submit()"> In progress only</label>
+  <button class="secondary">Apply filters</button>
+  {% if filters.status or filters.recipient or filters.client or filters.outstanding %}<a class="small" href="/admin/jobs">Clear filters</a>{% endif %}
 </form>
 <section class="card flush">
 {% if jobs %}
@@ -33,10 +36,10 @@
   {% endfor %}
 </table>
 {% else %}
-<p class="muted pad">No jobs match.</p>
+<div class="empty-state"><h3>No jobs match</h3><p>Try a different filter. Jobs appear here after a connected app submits a question.</p><a href="/admin/jobs">Clear filters</a></div>
 {% endif %}
 </section>
 {% if next_before %}
-<p><a href="?status={{ filters.status }}&recipient={{ filters.recipient }}&client={{ filters.client }}&before={{ next_before }}">Older →</a></p>
+<p><a href="?status={{ filters.status }}&recipient={{ filters.recipient }}&client={{ filters.client }}&outstanding={{ 'true' if filters.outstanding else 'false' }}&before={{ next_before }}">Older →</a></p>
 {% endif %}
 {% endblock %}

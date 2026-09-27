@@ -4,7 +4,7 @@ import hmac
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -273,13 +273,18 @@ async def overview(request: Request, admin: AdminDep) -> Response:
 async def jobs(
     request: Request,
     admin: AdminDep,
-    status_filter: Annotated[JobStatus | None, Query(alias="status")] = None,
+    status_filter: Annotated[JobStatus | Literal[""] | None, Query(alias="status")] = None,
     recipient: str | None = None,
     client: str | None = None,
     before: int | None = None,
+    outstanding: bool = False,
 ) -> Response:
     rows, next_before = await _queries(request).list_jobs(
-        status=status_filter, recipient_id=recipient or None, client_id=client or None, before=before
+        status=status_filter or None,
+        recipient_id=recipient or None,
+        client_id=client or None,
+        before=before,
+        outstanding=outstanding,
     )
     config = app_state(request).config
     return await render(
@@ -288,7 +293,12 @@ async def jobs(
         admin,
         jobs=rows,
         next_before=next_before,
-        filters={"status": status_filter or "", "recipient": recipient or "", "client": client or ""},
+        filters={
+            "status": status_filter or "",
+            "recipient": recipient or "",
+            "client": client or "",
+            "outstanding": outstanding,
+        },
         statuses=list(JobStatus),
         recipients=sorted(config.recipients),
         clients=sorted(config.clients),

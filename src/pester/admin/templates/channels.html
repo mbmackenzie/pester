@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf with context %}
 {% block title %}Channels{% endblock %}
+{% from "_macros.html" import page_header %}
 {% block content %}
-<h1>Channels</h1>
-<p>Channels carry prompts to people and bring their replies back.</p>
+{{ page_header('Channels', 'Connect a messenger to deliver questions and bring replies back.', '#add-channel', 'Add a channel') }}
+
 <section class="card flush">
 {% if channels %}
 <table>
-  <thead><tr><th>Channel</th><th>Type</th><th>Status</th><th>Recipients</th><th></th></tr></thead>
+  <thead><tr><th>Channel</th><th>Type</th><th>Status</th><th>Recipients</th><th><span class="sr-only">Actions</span></th></tr></thead>
   {% for name, cfg, st, members in channels %}
   <tr>
     <td>{% if cfg %}<a href="/admin/channels/{{ name }}"><strong>{{ name }}</strong></a>{% else %}<strong>{{ name }}</strong>{% endif %}
@@ -35,17 +36,20 @@ into Pester, for trying it out from the <a href="/admin/chat">Messenger</a> page
 {% endif %}
 </section>
 
-<section class="card">
-  <h3>Add a channel</h3>
+<section class="card" id="add-channel">
+  <h2>Add a channel</h2>
+  <p class="muted">Choose how Pester will reach people. The mock channel lets you try it here in your browser.</p>
   <form method="get" action="/admin/channels/new" class="chooser">
     <label>Type
       <select name="type">{% for name, description in adapters %}<option value="{{ name }}">{{ name }}: {{ description }}</option>{% endfor %}</select>
     </label>
     <button>Next</button>
   </form>
+  <details class="advanced"><summary>Use a custom adapter</summary>
   <form method="get" action="/admin/channels/new" class="chooser spaced">
     <label>Or your own adapter <input name="type" placeholder="my_package.chat:Adapter" required></label>
     <button class="secondary">Next</button>
   </form>
+  </details>
 </section>
 {% endblock %}
