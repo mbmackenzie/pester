@@ -28,24 +28,10 @@ Deploy in Dockge → open http://server:8000/admin → set a password → add a 
 
 ## 2. Phasing
 
-The **shell** (M7, first half) shipped against YAML config. M6 moved config into the database behind the
-admin service, with a CLI for every change. The **editable** screens (M7, second half) are forms over that
-same service.
-
-| Area | Now | Next: M7 forms |
-|---|---|---|
-| Login + first-run setup | ✓ | |
-| Dashboard: counts, health, recent activity | ✓ | |
-| Jobs: list, detail timeline, cancel | ✓ | |
-| Mock messenger | ✓ any configured mock channel; transcript persists | |
-| Recipients | list, pause/resume, pending pairing requests | approve/reject pairings, invite codes, edit timezone and quiet hours |
-| Clients | read-only list | create (token shown once), edit, rotate, revoke |
-| Channels | status and per-channel errors | add or configure from the adapter schema, secrets, restart |
-| Personalities | read-only list + preview | create/edit |
-| Pacing, LLM | read-only; key status | edit; set the key; "test connection" |
-
-Read-only pages show the CLI command for each change (`pester client create …`), so the page layout stays
-the same when the forms arrive.
+Built in three steps: the read-only **shell** (M7, first half) against YAML config; M6, which moved config
+into the database behind the admin service, with a CLI for every change; and the **forms** (M7, second
+half), which call that same service. Everything in §5 is in place except per-recipient overrides beyond
+quiet hours (other pacing settings are global).
 
 ## 3. Authentication
 

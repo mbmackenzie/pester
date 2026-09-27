@@ -20,10 +20,11 @@
       <label>Timezone {{ timezone_input("timezone", "", timezones) }}</label>
       <label>Quiet hours <input name="quiet" placeholder="22:00-09:00 (optional)"></label>
       <div style="flex-basis: 100%"><span class="small"><strong>Clients that may message them</strong></span>{{ checkboxes("clients", clients, []) }}</div>
-      <button>Approve</button>
-    </form>
-    <form method="post" action="/admin/pairings/{{ p.pk }}/reject" style="margin-top: 0.5rem" onsubmit="return confirm('Ignore {{ p.address }} from now on?')">
-      {{ csrf() }}<button class="small secondary">Reject</button>
+      <div class="actions" style="flex-basis: 100%; justify-content: flex-start">
+        <button>Approve</button>
+        <button class="secondary" formaction="/admin/pairings/{{ p.pk }}/reject" formnovalidate
+          onclick="return confirm('Ignore {{ p.address }} from now on?')">Reject</button>
+      </div>
     </form>
   </div>
   {% endfor %}

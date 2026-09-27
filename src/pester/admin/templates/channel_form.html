@@ -11,7 +11,7 @@
     {{ csrf() }}
     <input type="hidden" name="type" value="{{ channel_type }}">
     {% if not channel_name %}
-    <label>Name <input name="name" value="{{ values.name }}" required pattern="[a-z0-9][a-z0-9_-]{0,31}" autocomplete="off">
+    <label>Name <input name="name" value="{{ values.name }}" required pattern="[a-z0-9][a-z0-9_\-]{0,31}" autocomplete="off">
       <span class="help">Lowercase letters, digits, - and _. Recipients' links refer to this name.</span></label>
     {% endif %}
     <label>Description <input name="description" value="{{ values.description or '' }}" placeholder="optional"></label>
