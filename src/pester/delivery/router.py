@@ -7,7 +7,7 @@ from datetime import timedelta
 from pester.core.clock import Clock
 from pester.core.messages import InboundMessage, OutboundMessage
 from pester.delivery.base import DeliveryChannel
-from pester.delivery.commands import CommandHandler
+from pester.delivery.commands import CommandHandler, SendNow
 from pester.live import LiveConfig
 from pester.storage.repository import IngestOutcome, Repository
 
@@ -29,11 +29,12 @@ class ResponseRouter:
         channels: Mapping[str, DeliveryChannel],
         clock: Clock,
         on_unknown: Callable[[InboundMessage], Awaitable[None]] | None = None,
+        send_now: SendNow | None = None,
     ) -> None:
         self._repo = repo
         self._live = live
         self._channels = channels
-        self._commands = CommandHandler(repo, live, clock)
+        self._commands = CommandHandler(repo, live, clock, send_now)
         self._on_unknown = on_unknown
 
     def recipient_for(self, channel: str, address: str) -> str | None:
@@ -70,7 +71,8 @@ class ResponseRouter:
         if message.command is not None:
             if not await self._repo.record_inbound(message, IngestOutcome.COMMAND):
                 return IngestOutcome.DUPLICATE
-            await self._notify(message, await self._commands.handle(recipient_id, message))
+            if (reply := await self._commands.handle(recipient_id, message)) is not None:
+                await self._notify(message, reply)
             return IngestOutcome.COMMAND
 
         debounce = timedelta(seconds=self._live.current.config.scheduler.debounce_seconds)

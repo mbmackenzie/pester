@@ -299,6 +299,28 @@ class Repository:
             await self._insert_delivery(conn, job_pk, DeliveryKind.PROMPT, channel, address, message)
             return True
 
+    async def queued_for(self, recipient_id: str) -> list[JobRecord]:
+        """A recipient's queued jobs, highest priority first, then oldest."""
+        async with self._db.read() as conn:
+            rows = await conn.execute_fetchall(
+                f"SELECT {_JOB_COLUMNS} FROM jobs WHERE recipient_id = ? AND status = ? "
+                "ORDER BY priority DESC, created_at, pk",
+                (recipient_id, JobStatus.QUEUED),
+            )
+        return [_to_record(row) for row in rows]
+
+    async def outstanding_for(self, recipient_id: str) -> JobRecord | None:
+        """One of the recipient's outstanding jobs (sent and not yet closed), if any; AWAITING first."""
+        placeholders = ",".join("?" * len(OUTSTANDING))
+        async with self._db.read() as conn:
+            row = await _fetch_one(
+                conn,
+                f"SELECT {_JOB_COLUMNS} FROM jobs WHERE recipient_id = ? AND status IN ({placeholders}) "
+                "ORDER BY status = ? DESC, pk LIMIT 1",
+                (recipient_id, *OUTSTANDING, JobStatus.AWAITING),
+            )
+        return _to_record(row) if row is not None else None
+
     async def expire(self, job_pk: int) -> bool:
         async with self._db.transaction() as conn:
             row = await _fetch_job_by_pk(conn, job_pk)

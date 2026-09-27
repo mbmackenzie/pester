@@ -172,7 +172,7 @@ async def test_status(loop: Loop) -> None:
 
 async def test_unknown_command_lists_commands(loop: Loop) -> None:
     await loop.chat.inject("kate", "/help")
-    assert loop.last_seen().text == "Commands: /skip, /snooze 2h, /pause, /resume, /status"
+    assert loop.last_seen().text == "Commands: /send, /skip, /snooze 2h, /pause, /resume, /status"
 
 
 async def test_duplicate_command_runs_once(loop: Loop) -> None:
