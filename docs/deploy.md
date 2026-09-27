@@ -33,6 +33,9 @@ Everything after deploying happens in the browser.
 6. **Go.** Run that `curl` command (or point your producer at Pester with the token), and answer the question
    in the Messenger.
 
+**Telegram:** to reach people on their phones, add a Telegram bot as a channel: see
+[docs/telegram.md](telegram.md). It takes a few minutes, and nothing needs to be exposed to the internet.
+
 Optional: add an LLM API key under Settings (and **Test connection**) for LLM grading and LLM personalities.
 Pacing is production-like by default (quiet hours, spacing, a daily cap); while trying things out, clear the
 quiet hours and set the minimum interval and jitter to 0 under Settings → Pacing.
@@ -108,6 +111,7 @@ The container runs as uid 1000. If `./data` was created by root, `chown 1000:100
 | `PESTER_LOG_FORMAT` | `text` | `text` or `json` |
 | `PESTER_LOG_LEVEL` | `INFO` | Python log level |
 | `OPENAI_API_KEY` | unset | LLM API key; overrides one stored with `pester llm key` |
+| `TELEGRAM_BOT_TOKEN` | unset | Telegram bot token; overrides one saved in a `telegram` channel's settings |
 | `PESTER_DEV_MODE` | `false` | Development only: the echo evaluator, a mock channel if none is configured, and unauthenticated `/dev` chat routes |
 
 ## Health checks

@@ -346,7 +346,7 @@ Implementations:
 |---|---|
 | `InMemoryChannel` | Tests. One conversation per address with sequential message ids, `inject(...)` for inbound messages, and send-failure injection. |
 | `mock` adapter | A messenger built into Pester, used from the admin UI's Messenger page. An `InMemoryChannel` whose conversations are stored in SQLite, so they survive restarts and message ids are never reused. Models reply threading like Telegram. In dev mode (`PESTER_DEV_MODE`), a mock channel named `fake` is added when none is configured, and the unauthenticated dev routes `GET`/`POST /dev/chat/{address}?channel=` and `pester chat <address>` drive it. |
-| Telegram adapter (M8) | Long polling via `python-telegram-bot`, no public webhook. Inline keyboards for `response_options`. |
+| `telegram` adapter | A Telegram bot over the Bot API with long polling (no public webhook), talking to the API directly so every failure can be classified (§9.1): connect errors, 429, and 502–504 are retried; 400/403 are permanent; timeouts after sending and other 5xx are ambiguous. Private chats only, addressed by `chat_id`. Inline keyboards for `response_options` (`callback_data` is the button index; a press is acknowledged, shown on the prompt, and the keyboard removed). Invite codes become `t.me/<bot>?start=<code>` links. Setup: [docs/telegram.md](telegram.md). |
 
 ### 9.1 Sending (outbox pattern)
 
@@ -597,7 +597,7 @@ Each milestone is tracked as a GitHub issue.
 | M5 | Hardening and deployment | Survives kill -9 mid-flow; Docker Compose |
 | M6 | Config in the database, pluggable channels | With no YAML: create a client, add the mock channel, pair a recipient, and run the full loop via the CLI, with changes applied live |
 | M7 | Admin UI | From a fresh container, everything above in a browser |
-| M8 | Telegram adapter | Real Telegram passes the channel contract suite |
+| M8 | Telegram adapter | Passes the channel contract suite against a fake Bot API; pairing a real phone works end to end |
 
 **Post-MVP:** reminders, push webhooks to producers, one-turn clarification (`NEEDS_CLARIFICATION`), voice-note transcription, per-recipient delivery windows.
 
