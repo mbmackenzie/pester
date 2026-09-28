@@ -39,6 +39,7 @@ from pester.admin.views import (
 from pester.api.preview import SampleResponse, run_preview
 from pester.config import DeliveryConfig, LLMConfig, Permission, SchedulerConfig
 from pester.configstore import ConfigStore
+from pester.core.messages import OutboundMessage
 from pester.core.models import DeliverySpec, EvaluationSpec, InteractionJob
 from pester.delivery.adapters import (
     ChannelAdapter,
@@ -48,6 +49,7 @@ from pester.delivery.adapters import (
     secret_fields,
     secret_source,
 )
+from pester.delivery.base import ChannelError
 from pester.delivery.commands import describe_next
 from pester.evaluation.llm import LLMEvaluator
 from pester.llm import chat, first_text, user
@@ -352,6 +354,47 @@ async def link_recipient(request: Request, admin: CheckedAdminDep, recipient_id:
     return done(
         request, f"Linked {recipient_id} on {text(form, 'channel')}.", f"/admin/recipients/{recipient_id}"
     )
+
+
+@router.post("/recipients/{recipient_id}/ping")
+async def ping_recipient(request: Request, admin: CheckedAdminDep, recipient_id: str) -> Response:
+    form = await request.form()
+    name = text(form, "channel")
+    recipient = app_state(request).config.recipients.get(recipient_id)
+    if recipient is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such recipient")
+    runtime = runtime_of(request)
+    channel = runtime.channels.get(name)
+    error = None
+    if name not in recipient.channels:
+        error = "This recipient is not linked to that channel."
+    elif channel is None or name not in runtime.manager.started:
+        error = "This channel is not running. Start it before sending a test message."
+    else:
+        try:
+            address = channel.address_of(recipient.channels[name])
+            await asyncio.wait_for(
+                channel.send(address, OutboundMessage(text="Ping! This is a test message from Pester.")),
+                timeout=15,
+            )
+        except (ChannelError, ValueError):
+            error = "Test message failed. Check the channel settings and recipient address, then try again."
+        except Exception:
+            error = "Delivery could not be confirmed. Check the chat before trying again."
+    if error:
+        return await _recipient_page(request, admin, recipient_id, 400, error)
+    return done(
+        request, f"Test message sent to {recipient_id} on {name}.", f"/admin/recipients/{recipient_id}"
+    )
+
+
+@router.post("/jobs/shuffle")
+async def shuffle_jobs(request: Request, admin: CheckedAdminDep) -> Response:
+    form = await request.form()
+    enabled = checked(form, "enabled")
+    await service_of(request).update_settings("scheduler", {"shuffle_jobs": enabled})
+    runtime_of(request).nudge()
+    return done(request, "Job shuffle enabled." if enabled else "Job shuffle disabled.", "/admin/jobs")
 
 
 @router.post("/recipients/{recipient_id}/unlink")

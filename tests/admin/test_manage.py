@@ -454,3 +454,39 @@ async def test_api_preview_does_not_return_llm_calls(browser: Admin) -> None:
     assert "llm_calls" not in body
     assert body["personality_fallback"] is True
     assert "no LLM API key" in body["personality_error"]
+
+
+async def test_ping_linked_channel(browser: Admin, app: FastAPI) -> None:
+    page = await browser.get("/admin/recipients/kate")
+    assert "Send test message" in page.text
+    response = await browser.post("/admin/recipients/kate/ping", channel="fake")
+    assert response.status_code == 303
+    assert mock_of(app).sent("kate")[-1].text == "Ping! This is a test message from Pester."
+    assert await runtime_of(app).scheduler.next_send("kate") is None
+
+
+async def test_ping_rejects_bad_links_and_handles_failures(browser: Admin, app: FastAPI) -> None:
+    assert (await browser.post("/admin/recipients/unknown/ping", channel="fake")).status_code == 404
+    assert (await browser.post("/admin/recipients/kate/ping", channel="unknown")).status_code == 400
+    assert (
+        await browser.client.post("/admin/recipients/kate/ping", data={"channel": "fake"})
+    ).status_code == 403
+    mock_of(app).fail_next_send()
+    failed = await browser.post("/admin/recipients/kate/ping", channel="fake")
+    assert failed.status_code == 400 and "Test message failed" in failed.text
+    assert mock_of(app).sent("kate") == []
+    mock_of(app).fail_next_send(RuntimeError("secret must not leak"))
+    uncertain = await browser.post("/admin/recipients/kate/ping", channel="fake")
+    assert uncertain.status_code == 400 and "could not be confirmed" in uncertain.text
+    assert "secret must not leak" not in uncertain.text
+
+
+async def test_jobs_shuffle_toggle_applies_live(browser: Admin, app: FastAPI) -> None:
+    interval = config_of(app).scheduler.min_interval_minutes
+    assert (await browser.post("/admin/jobs/shuffle", enabled="on")).status_code == 303
+    assert config_of(app).scheduler.shuffle_jobs
+    assert config_of(app).scheduler.min_interval_minutes == interval
+    page = await browser.get("/admin/jobs")
+    assert 'name="enabled" checked' in page.text
+    assert (await browser.post("/admin/jobs/shuffle")).status_code == 303
+    assert not config_of(app).scheduler.shuffle_jobs

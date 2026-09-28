@@ -74,3 +74,10 @@ Pester never risks sending someone the same question twice. When Telegram can't 
 limiting, the message definitely wasn't sent, so Pester retries with backoff. When Telegram refuses (the
 person blocked the bot, or the chat doesn't exist), it doesn't retry. When a request times out after it was
 sent, Pester can't know whether it arrived, so it marks that delivery failed rather than risk a duplicate.
+
+### Send a test message
+
+Once a recipient is linked, use **Test message to …** on the Channels page, or **Send test message**
+on the recipient's page. Pester sends a plain ping to that saved chat through the running bot and
+reports success or failure. It does not create a question, consume pacing limits, or change an
+outstanding job. If delivery cannot be confirmed, check Telegram before trying again.

@@ -29,6 +29,8 @@
   <table>
     {% for name, settings in links %}
     <tr><td><strong>{{ name }}</strong></td><td><code>{{ settings }}</code></td>
+      <td><form method="post" action="/admin/recipients/{{ recipient_id }}/ping">
+        {{ csrf() }}<input type="hidden" name="channel" value="{{ name }}"><button class="small secondary">Send test message</button></form></td>
       <td class="right"><form method="post" action="/admin/recipients/{{ recipient_id }}/unlink" onsubmit="return confirm('Stop reaching {{ recipient_id }} on {{ name }}?')">
         {{ csrf() }}<input type="hidden" name="channel" value="{{ name }}"><button class="small secondary">Unlink</button></form></td></tr>
     {% endfor %}

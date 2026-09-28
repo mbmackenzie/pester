@@ -78,6 +78,11 @@ class Policy:
     min_interval: timedelta = timedelta(0)
     max_per_day: int = 1_000_000
     jitter: Jitter = no_jitter
+    shuffle_jobs: bool = False
+
+    def order_key(self, candidate: Candidate) -> tuple[float, bytes, datetime, int]:
+        rank = hashlib.sha256(f"shuffle:{candidate.key}".encode()).digest() if self.shuffle_jobs else b""
+        return (-candidate.priority, rank, candidate.created_at, candidate.key)
 
 
 @dataclass(frozen=True)
@@ -110,7 +115,7 @@ def decide(
         state = recipients[recipient_id]
         if state.paused:
             continue
-        pending.sort(key=lambda c: (-c.priority, c.created_at, c.key))
+        pending.sort(key=policy.order_key)
         while pending and state.outstanding < policy.max_outstanding:
             times = {c.key: earliest_send(now, c, state, policy) for c in pending}
             ready = [c for c in pending if times[c.key] <= now]
@@ -188,7 +193,7 @@ def next_send(
     """Explain what happens next for one recipient, consistently with ``decide``."""
     live = sorted(
         (c for c in pending if c.expires_at is None or c.expires_at > now),
-        key=lambda c: (-c.priority, c.created_at, c.key),
+        key=policy.order_key,
     )
     if not live:
         return None

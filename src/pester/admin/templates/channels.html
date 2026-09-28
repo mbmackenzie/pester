@@ -25,6 +25,9 @@
     <td>{% for r in members %}<span class="chip">{{ r }}</span>{% else %}<span class="muted">none</span>{% endfor %}</td>
     <td><div class="actions">
       {% if cfg %}<a href="/admin/channels/{{ name }}">Edit</a>{% endif %}
+      {% if st and st.running %}{% for r in members %}
+      <form method="post" action="/admin/recipients/{{ r }}/ping">{{ csrf() }}<input type="hidden" name="channel" value="{{ name }}"><button class="small secondary">Test message to {{ r }}</button></form>
+      {% endfor %}{% endif %}
       {% if st %}<form method="post" action="/admin/channels/{{ name }}/restart">{{ csrf() }}<button class="small secondary">Restart</button></form>{% endif %}
       {% if cfg %}<form method="post" action="/admin/channels/{{ name }}/remove" onsubmit="return confirm('Remove channel {{ name }} and its secrets? Recipients linked to it can no longer be reached there.')">{{ csrf() }}<button class="small danger">Remove</button></form>{% endif %}
     </div></td>
