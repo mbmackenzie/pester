@@ -289,7 +289,9 @@ For each queued job, `earliest_send` computes the first moment it may go out. Ev
 - **Daily cap:** at most `max_messages_per_day` prompts in the recipient's **local** day; otherwise pushed to local midnight (and then usually to the end of quiet hours).
 - **Paused** recipients get nothing. Their jobs can still expire.
 
-Each recipient's eligible jobs are taken in priority order (highest priority, then oldest, then submission order) while outstanding slots remain. After each pick the recipient's state is updated as if it had been sent, so spacing and caps hold even when several jobs are due in the same pass.
+When `scheduler.shuffle_jobs` is enabled (default: false), equal-priority jobs use a stable hash of their unique database key as their shuffled order, shared by the scheduler, next-send preview, and `/send`. This order survives restarts without changing submitted jobs.
+
+Each recipient's eligible jobs are otherwise taken in priority order (highest priority, then oldest, then submission order) while outstanding slots remain. After each pick the recipient's state is updated as if it had been sent, so spacing and caps hold even when several jobs are due in the same pass.
 
 **Jitter** is a deterministic function of `jitter_seed` and a fixed anchor: the job's own start, the last prompt (for spacing), or the date (for quiet hours). A job's send time is therefore stable across passes and restarts instead of receding. The quiet-hours release time is `end + jitter(that night)`, whether it's evaluated from inside the window or just after its nominal end.
 

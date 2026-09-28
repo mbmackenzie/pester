@@ -73,7 +73,9 @@ class SchedulerWorker:
             return SendNowResult(SendNowOutcome.OUTSTANDING, open_job)
         snapshot = self._live.current
         now = self._clock.now()
-        for job in await self._repo.queued_for(recipient_id):
+        policy = _policy(snapshot.config.scheduler)
+        pending = await self._repo.queued_for(recipient_id)
+        for job in sorted(pending, key=lambda job: policy.order_key(_candidate(job))):
             delivery = job.spec.delivery
             if (delivery.expires_at and delivery.expires_at <= now) or (
                 delivery.not_before and delivery.not_before > now
@@ -203,6 +205,7 @@ def _recipient_state(
 
 def _policy(scheduler: SchedulerConfig) -> Policy:
     return Policy(
+        shuffle_jobs=scheduler.shuffle_jobs,
         max_outstanding=scheduler.max_outstanding,
         min_interval=timedelta(minutes=scheduler.min_interval_minutes),
         max_per_day=scheduler.max_messages_per_day,

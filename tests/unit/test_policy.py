@@ -338,3 +338,21 @@ def test_next_send_matches_what_decide_would_do() -> None:
     busy = next_send(now, [low], RecipientState(tz=tz, outstanding=1), Policy())
     assert busy is not None and busy.waiting_on_answer
     assert next_send(now, [expired], state, Policy()) is None
+
+
+def test_shuffle_is_stable_complete_and_respects_priority_and_windows() -> None:
+    from pester.scheduler.policy import next_send
+
+    jobs = [cand(i, age=20 - i) for i in range(1, 11)]
+    policy = Policy(shuffle_jobs=True, max_outstanding=20)
+    order = decide(NOW, jobs, kate(), policy).send
+    assert sorted(order) == list(range(1, 11))
+    assert order != list(range(1, 11))
+    assert decide(NOW, reversed(jobs), kate(), policy).send == order
+    preview = next_send(NOW, jobs, kate()["kate"], policy)
+    assert preview is not None and preview.key == order[0]
+    jobs += [cand(11, priority=1), cand(12, priority=1, not_before=NOW + H), cand(13, expires_at=NOW)]
+    plan = decide(NOW, jobs, kate(), policy)
+    assert plan.send == [11, *order]
+    assert plan.expire == [13]
+    assert decide(NOW, jobs, kate(), Policy(shuffle_jobs=True, min_interval=H)).send == [11]

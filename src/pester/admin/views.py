@@ -294,6 +294,7 @@ async def jobs(
         "jobs.html",
         admin,
         jobs=rows,
+        shuffle_jobs=config.scheduler.shuffle_jobs,
         next_before=next_before,
         filters={
             "status": status_filter or "",

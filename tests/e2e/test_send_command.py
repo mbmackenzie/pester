@@ -141,3 +141,21 @@ async def test_send_answers_on_the_channel_it_was_asked_on(
         await app.state.runtime.run_until_idle()
     assert [m.text for m in other.sent("kate")] == ["Did you water the plants?"]
     assert fake.sent("kate") == []
+
+
+@pytest.mark.pester_config({"scheduler": {"shuffle_jobs": True}})
+async def test_shuffle_preview_scheduler_and_send_agree(loop: Loop) -> None:
+    for i in range(1, 11):
+        await loop.submit(id=f"q{i}", prompt=f"Question {i}")
+    order: list[str] = []
+    for i in range(10):
+        preview = await loop.runtime.scheduler.next_send("kate")
+        assert preview is not None
+        if i % 2:
+            result = await loop.runtime.scheduler.send_now("kate")
+            assert result.job is not None and result.job.pk == preview.key
+        await loop.settle()
+        order.append(loop.last_seen().text or "")
+        await loop.chat.inject("kate", "/skip")
+    assert sorted(order) == sorted(f"Question {i}" for i in range(1, 11))
+    assert order != [f"Question {i}" for i in range(1, 11)]

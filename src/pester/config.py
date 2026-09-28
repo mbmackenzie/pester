@@ -139,6 +139,10 @@ class LLMConfig(_Strict):
 
 
 class SchedulerConfig(_Strict):
+    shuffle_jobs: bool = Field(
+        default=False,
+        description="Shuffle queued questions within each priority level instead of oldest first.",
+    )
     quiet_hours: QuietHours | None = QuietHours(start=time(21, 0), end=time(8, 30))
     min_interval_minutes: int = Field(
         default=120, ge=0, description="Least time between two questions to one person."

@@ -70,3 +70,11 @@ uv run pytest -m live   # optional: real LLM calls using OPENAI_API_KEY from .en
 ```
 
 Tests never read `.env` or call a real LLM unless you opt in with `-m live`.
+
+## Shuffle questions
+
+On the admin **Jobs** page, enable **Shuffle jobs** and save the order. This applies immediately to
+all recipients and to `/send`, choosing queued questions in a stable shuffled order within each
+priority level. Timing rules and outstanding-question limits still apply. Turning it off restores
+oldest-first ordering; existing in-progress questions are unchanged. You can also set it with
+`pester settings set scheduler.shuffle_jobs=true`, or under Scheduler in Settings.

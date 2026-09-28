@@ -134,3 +134,22 @@ async def test_the_token_can_come_from_the_environment(
     await service_of(app).add_channel("telegram", "telegram")
     assert "telegram" in runtime_of(app).started_channels
     assert await app.state.config_store.secrets() == {}
+
+
+async def test_admin_ping_sends_through_telegram(
+    app: FastAPI, client: httpx.AsyncClient, api: FakeBotAPI
+) -> None:
+    from tests.admin.conftest import set_up
+
+    await service_of(app).add_channel("telegram", "telegram", {"bot_token": api.token})
+    await service_of(app).link_channel("kate", "telegram", {"chat_id": CHAT})
+    csrf = await set_up(client, app)
+    page = await client.get("/admin/channels")
+    assert "Test message to kate" in page.text
+    response = await client.post("/admin/recipients/kate/ping", data={"csrf": csrf, "channel": "telegram"})
+    assert response.status_code == 303
+    assert api.texts(CHAT) == ["Ping! This is a test message from Pester."]
+    await service_of(app).update_channel("telegram", enabled=False)
+    response = await client.post("/admin/recipients/kate/ping", data={"csrf": csrf, "channel": "telegram"})
+    assert response.status_code == 400 and "not running" in response.text
+    assert len(api.texts(CHAT)) == 1

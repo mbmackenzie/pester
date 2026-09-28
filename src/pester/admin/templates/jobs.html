@@ -1,9 +1,15 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status %}
+{% from "_macros.html" import status, csrf with context %}
 {% block title %}Jobs{% endblock %}
 {% from "_macros.html" import page_header %}
 {% block content %}
 {{ page_header('Jobs', 'Follow each question from the queue to a reply.') }}
+<form method="post" action="/admin/jobs/shuffle" class="row-form spaced">
+  {{ csrf() }}
+  <label class="check"><input type="checkbox" name="enabled" {{ 'checked' if shuffle_jobs }}> Shuffle jobs</label>
+  <button class="secondary">Save order</button>
+  <span class="help">Applies to all recipients, including /send. Shuffles within each priority level; timing limits still apply.</span>
+</form>
 <form method="get" class="filters">
   <label>Status<select name="status" onchange="this.form.submit()">
     <option value="">All statuses</option>
